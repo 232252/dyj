@@ -13,6 +13,7 @@
 | [`05-environment-probe.md`](05-environment-probe.md) | **附录 C**：本机真实环境实测（网络/打印机/mDNS 占用） | ✅ Lead 实测 |
 | [`06-mdns-coexistence-verified.md`](06-mdns-coexistence-verified.md) | **附录 D**：P0 #3 实证 —— mDNS 与 Chrome 共存**已解除阻塞** | ✅ Lead 实测 |
 | [`07-go-ipp-server-capability.md`](07-go-ipp-server-capability.md) | **附录 E**：`go-ipp` 服务端能力实测 —— **发现属性编码硬缺口** | ✅ Lead 实测 |
+| [`08-independent-review.md`](08-independent-review.md) | **附录 F**：对调研结论的独立复核（含"否决 Rust"的关键论据确认） | ✅ Lead 复核 |
 
 ## 三句话结论
 
