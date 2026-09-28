@@ -1,68 +1,93 @@
 # dyj — LAN 打印机共享工具
 
-把接在一台机器上的打印机（USB / 本地）通过局域网共享出去，让 **Windows、Linux、macOS、iOS**
-客户端无需安装厂商驱动即可直接打印。
+把接在一台机器上的打印机（Windows 打印队列 / 任意后端）通过局域网共享出去，
+让 **Windows、Linux、macOS** 客户端**免装驱动**直接打印。
+单个静态二进制（8–9 MB），无运行时依赖。
 
-> 当前阶段：**调研中（Phase 0）**。仓库尚无生产代码，只有调研文档与决策记录。
-> 请先读 `docs/research/` 再动代码。
-
-## 项目价值观（硬约束，PR 评审按此判定）
-
-| 约束 | 含义 | 反面例子（拒绝） |
-| --- | --- | --- |
-| **体积小** | 静态二进制/镜像尽量小；运行时依赖越少越好 | 拖一个 500MB 的 JRE/Python 运行时 |
-| **好维护** | 模块边界清晰，单个文件小，可单独测试 | 一个 5000 行的 `server.py` |
-| **长眼光** | 押注有 RFC/标准背书的协议（IPP、mDNS/DNS-SD），不押私有协议 | 自造二进制协议 / 依赖会被删除的厂商 API |
-| **无巨石** | 单体可执行文件 + 明确的内部分层；扩展走 **插件/后端接口**，而不是往核心塞 `if` | 把所有厂商怪癖硬编码进核心调度器 |
-
-## 目标使用场景
-
-```
-┌──────────────┐   USB   ┌─────────────────────┐   LAN (mDNS 自动发现)   ┌─────────────┐
-│   打印机      │◄───────►│  本机 (host)         │◄──────────────────────►│  Win 客户端  │
-│ (USB/并口)    │         │  dyj 打印服务        │    IPP / AirPrint      │  Linux 客户端│
-└──────────────┘         │  :631 IPP + mDNS     │                        │  macOS/iOS  │
-                         └─────────────────────┘                        └─────────────┘
-```
-
-核心目标：**客户端零驱动安装**。macOS/iOS 走 AirPrint，Windows 10/11 走内置 IPP 客户端，
-Linux 走 CUPS 的 `ipp://` 后端。
-
-## 仓库结构（规划）
-
-```
-docs/
-  research/          调研报告（Phase 0 产物）
-  adr/               架构决策记录 (Architecture Decision Record)
-cmd/ or src/         入口/装配层 —— 只做依赖注入，不放业务逻辑
-internal/            各功能模块（见下）
-```
-
-**"无巨石"的落地方式**：核心不是一个大进程里堆功能，而是拆成职责单一的模块，
-彼此只通过**明确接口**通信；驱动适配走**插件接口**（对应 CUPS 的 backend/filter 模型）。
-
-```
-transport(监听/TLS)   ipp(协议编解码)   discovery(mDNS/DNS-SD)
-      │                     │                   │
-      └──────────┬──────────┴─────────┬─────────┘
-                 ▼                    ▼
-            jobspool(队列/持久化)   driver(打印机适配/插件)
-```
+> 当前阶段：**可用的 v0.1 已交付**（服务端 + 客户端 + 服务化 + 全平台产物）。
+> 决策记录见 `docs/adr/`，调研论据见 `docs/research/`。
 
 ## 快速开始
 
-尚未实现。计划中的用法（占位，未验证）：
+服务端（Windows，打印机已装好驱动）：
+
+```powershell
+dyj serve -name "办公室打印机" -printer "EPSON L3250" -port 6631
+```
+
+- `-printer` 是 Windows 打印队列名（PowerShell `Get-Printer` 可查）；
+- 加 `-tls-port 6632` 会同时提供 ipps://（自签证书）；
+- 防火墙放行 TCP 6631 与 UDP 5353（mDNS）。
+
+客户端（任何平台，CUPS 直接添加）：
 
 ```bash
-dyj serve --printer usb:/dev/usb/lp0 --name "Office Printer"
+# Linux / macOS
+lpadmin -p dyj -E -v ipp://192.168.1.10:6631/ipp/print
+lp -d dyj notes.txt
 ```
+
+Windows 11：设置 → 蓝牙和其他设备 → 打印机和扫描仪 → 添加设备 →
+手动添加 → **通过 IP 地址添加打印机** → IPP → `ipp://192.168.1.10:6631/ipp/print`
+
+dyj 自带客户端（文本/图片自动转 PWG 光栅后提交）：
+
+```bash
+dyj browse                                # 找到局域网里的打印机
+dyj status  192.168.1.10:6631             # 查询能力
+dyj print   192.168.1.10:6631 photo.jpg   # 打印（-copies -media -color）
+dyj jobs    192.168.1.10:6631             # 查队列
+dyj cancel  192.168.1.10:6631 1           # 取消作业
+```
+
+## 协议与兼容
+
+- **IPP 2.0 + IPP Everywhere 属性表**（PWG 5100.14）+ **mDNS/DNS-SD**（`_ipp._tcp`）。
+  这是三平台原生支持的唯一免驱组合；微软官方时间表正在淘汰第三方打印驱动，
+  IPP 路线价值随时间上升（见 `docs/research/04`）。
+- 服务端实现：Get-Printer-Attributes / Print-Job / Validate-Job /
+  Create-Job + Send-Document（多文档）/ Get-Jobs / Get-Job-Attributes /
+  Cancel-Job / Identify-Printer；gzip 文档压缩；`ipp-attribute-fidelity` 校验。
+- **只声明真的能渲染的格式**：`image/pwg-raster`、`image/jpeg`、`image/png`、
+  `text/plain`（自研光栅管线，见 ADR-0007）。PDF/URF 未声明——虚假声明会让客户端
+  发来打不出的作业，比不支持更糟。
+- Windows 投递走 **GDI 打印路径**：复用系统已装厂商驱动做光栅化，dyj 零驱动零 PPD。
+
+## 交付物
+
+| | |
+| --- | --- |
+| 二进制 | `dist/dyj-{windows,linux,darwin}-{amd64,arm64}[.exe]`，8–9 MB，纯静态 |
+| 服务化 | `dyj service install`（Windows SCM 服务 / systemd / launchd） |
+| 测试 | `go test ./...`（单元 + 进程内 E2E）；`scripts/e2e.sh`（二进制级 E2E） |
+| 构建 | `scripts/build-all.sh`（交叉编译 6 目标） |
+
+## 仓库结构
+
+```
+cmd/dyj/           入口装配：serve / browse / status / print / jobs / cancel / service
+pkg/attributes/    RFC 8010 编解码（唯一 wire 层）+ IPP Everywhere 属性表
+pkg/ipp/           HTTP(S) 传输 + 操作语义 + JobSink 接缝
+pkg/spooler/       作业状态机、流式落盘、崩溃恢复、历史清理
+pkg/render/        PWG Raster 编解码、文本布局、图片光栅化
+pkg/driver/        后端接口 + wingdi(Windows GDI) / file / null
+pkg/client/        IPP 客户端库
+pkg/discovery/     mDNS 通告/浏览（自管 socket，显式选接口）
+pkg/service/       Windows SCM / systemd / launchd
+docs/adr/          架构决策记录（0001–0007）
+docs/research/     Phase 0 调研与实证报告（含对抗性核查）
+e2e/               进程内全管线测试
+scripts/           build-all.sh、e2e.sh
+```
+
+价值观（硬约束，PR 评审按此判定）：**体积小 · 好维护 · 长眼光（押标准协议）· 无巨石**。
 
 ## 贡献
 
 - 提交信息使用 [Conventional Commits](https://www.conventionalcommits.org/)。
 - 每个非平凡决策写一份 `docs/adr/NNNN-title.md`。
-- 不要提交真实凭据；`.env` 已在 `.gitignore` 中。
+- 动 wire 格式的改动必须带黄金字节测试；`go test ./...` 与 `scripts/e2e.sh` 必须全绿。
 
 ## 许可证
 
-尚未确定 —— 见 [ADR-0002](docs/adr/0003-license.md)（待决，涉及 CUPS/GPL 传染性评估）。
+Apache-2.0 —— 见 [ADR-0003](docs/adr/0003-license.md)。

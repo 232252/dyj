@@ -2,6 +2,12 @@
 
 本目录是项目动工前的调研产物。**结论已并入 `docs/adr/`，此处保留完整论据与来源。**
 
+> **状态更新（2026-09-29，v0.1 交付后）**：P0 清单 #1、#2、#9、#10、#11 已在实现轮
+> 完成代码级实证（见 `docs/adr/0005`、`0006`、`0007` 与 CHANGELOG）。
+> **#1 的 GUI 实测（Win11 添加打印机）仍待真机验收**——代码路径已被
+> 黄金字节测试 + 独立解码器交叉验证 + 二进制 E2E 覆盖，但 ADR-0004 的 A4
+> （真实 Win11 添加）仍是开放项。#4（AirPrint/URF）已按 ADR-0007 显式降级为"不声明"。
+
 ## 文档
 
 | 文档 | 内容 | 状态 |
@@ -29,18 +35,18 @@
 
 | # | 待验证问题 | 为什么是 P0 | 建议验证方式 |
 | --- | --- | --- | --- |
-| **1** | **自研 IPP 服务端能否被 Windows 11 直接添加成功？** | **本项目核心验收标准**；若不成立则整个方案不成立 | 起最小 IPP 服务端 → Win11「添加打印机(IP 地址)」→ 真机打印 |
-| **2** | **Windows 内置 IPP 客户端实际发送什么文档格式**（PDF？PWG Raster？XPS？） | 直接决定 `document-format-supported` 必须包含什么，否则 Windows 打不出来 | `ipptool` 或抓包观察真实 Windows 请求 |
+| ~~**1**~~ | ~~自研 IPP 服务端能否被 Windows 11 直接添加成功？~~ | 代码级已实证（RFC 8010 黄金字节 + 独立解码器 + E2E）；**GUI 真机验收仍开放** | 起服务 → Win11 添加 → 打印（待做） |
+| ~~**2**~~ | ~~Windows 内置 IPP 客户端实际发送什么文档格式~~ | **已被架构决策取代**：只声明我们能渲染的格式（pwg-raster/jpeg/png/text），见 ADR-0007 D1——客户端适配声明，而非声明适配客户端 | — |
 | ~~3~~ | ~~mDNS 能否与已占用 5353 的 Chrome 共存？~~ | ✅ **已实证解除**（[附录 D](06-mdns-coexistence-verified.md)） | 共存**可行**。⚠️ 原"Go 不设 `SO_REUSEADDR`"归因**已被对抗性核查推翻**，真正原因是**默认组播接口选错**；详见 [附录 D §D.6](06-mdns-coexistence-verified.md) |
 | **4** | AirPrint 的确切要求（`urf` TXT 取值、`_universal._sub._ipp._tcp` 是否存在、必需属性） | 决定 macOS/iOS 能否发现；**Apple 规范原文本次取不到** | 跑 `ippeveprinter`，用 `dns-sd -B/-L` 观察其**实际**广播的 TXT 键 |
 | **5** | IPP Everywhere 必需属性表能否通过 `ipptool` 官方测试套件？ | 属性缺失是 AirPrint 报错 21345 类问题的根源 | `ipptool` + `get-printer-attributes-suite.test` 对拍 |
 | **6** | 打印机休眠时端口全关（附录 C.4），如何判断设备可用性？ | 不能用端口扫描判活；影响作业失败处理 | 走 spooler 队列状态查询而非端口扫描 |
 | **7** | LPR Port Monitor / Internet Printing Client 是否 Windows 可选功能及其名称 | 调研未核实；影响客户端引导文档 | 提权后 `Get-WindowsOptionalFeature` |
 | **8** | Windows Protected Print Mode (WPPM) 的实际行为 | 官方正文取不到（404），不要断言 | 需权威来源或实测 |
-| ~~9~~ | ~~`go-ipp` 响应编码器为包内私有，构造响应的可行路径~~ | ✅ **已实证**（[附录 E](07-go-ipp-server-capability.md)）：`Response.Encode()` 已导出、**无需 fork**；**但发现新缺口** ↓ | 见下方新增项 |
-| **10** | **`go-ipp` 缺少 IPP Everywhere 必需属性**（映射表仅 70 项，`-supported` 系列几乎全缺） | 决定 `pkg/attributes/` 必须自研"带显式 tag 的属性写入器"；**直接影响工作量估算** | 见附录 E §E.2；用 `ipptool` 对拍 |
-| **11** | 自研属性写入器的 `operations-supported` 等 **1setOf enum** 必须写大端 2 字节 | 手写 RFC 8010 最易错处；写错则客户端不认 | 用 `ipptool` 验证；参考附录 E §E.3 |
-| **12** | **彩色机的 `document-format-supported` 是否必须含 `image/jpeg`** | PWG 原文 "JPEG only required for color printers"，但**"彩色机"的判定标准未核实**；本机目标机型是彩色机 | 复核 PWG 5100.14；以 `color-supported` 判定 |
+| ~~9~~ | ~~`go-ipp` 响应编码器为包内私有~~ | ✅ 已实证并超越：**编码与解码均已弃用 go-ipp**（解码器有覆盖 bug），见 [ADR-0005](../adr/0005-single-wire-encoder.md)、[ADR-0006](../adr/0006-own-request-decoder.md) | — |
+| ~~**10**~~ | ~~`go-ipp` 缺少 IPP Everywhere 必需属性~~ | ✅ **已解决**：`pkg/attributes/` 显式 tag 写入器 + 完整属性表已交付，黄金字节测试锁定 | — |
+| ~~**11**~~ | ~~`operations-supported` 1setOf enum 的字节宽度~~ | ✅ **已实证并修正**：RFC 8010 §3.8 强制 **4 字节**（附录 F 红队报告 §5），2 字节版本会让独立解码器失步；黄金测试锁定 | — |
+| ~~**12**~~ | ~~彩色机是否必须声明 `image/jpeg`~~ | ✅ **已按原文落地**：JPEG 在默认声明表中（彩色机 PWG 必需；灰度机转换后同样可打） | — |
 
 ## 来源可靠性说明
 
