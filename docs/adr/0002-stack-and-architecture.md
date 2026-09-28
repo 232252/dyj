@@ -56,6 +56,21 @@ MIT 替代品 `heeen/ipp-printer-app` 仅 2★。**IPP 生态尚未成熟到可�
 - **复用系统已装的厂商驱动做光栅化**，我们**不需要实现驱动/PPD/filter 栈** —— 这正是 `cups-filters` 246 MB 的来源；
 - 可在 Windows 上立即交付可用版本。
 
+> ⚠️ **文档格式必须按 PWG 的实际要求来声明（已核实原文，见下）。**
+> [PWG IPP Everywhere 页面](https://www.pwg.org/ipp/everywhere.html) 原文：
+> *"**Required**: IPP/2.0, DNS-SD, **PWG Raster and JPEG JFIF** file formats (JPEG only required for color printers)
+> **Recommended**: PDF, IPP-USB"*
+>
+> 因此 `document-format-supported` 的构成应为：
+> - **必需**：`image/pwg-raster`；**彩色机型另需 `image/jpeg`**；
+> - **推荐**：`application/pdf`；
+> - ⚠️ **`image/urf` 不是 PWG 必需项**（它是 Apple AirPrint 扩展）。
+>   面向 AirPrint **可以**额外声明 `urf`，但**不能拿它顶替 PWG Raster**。
+>
+> **注意**：这意味着**服务端自身不需要光栅化**（PDF/PWG/JPEG 都是"已光栅化或可直接送设备"的格式），
+> 从而仍然绕开 Ghostscript；但**必须正确声明这些格式**，否则彩色机型上不满足 IPP Everywhere 一致性。
+> ⚠️ 本机目标机型（Epson L3250 量级）**是彩色机**，故 **JPEG JFIF 属于必需**。
+
 **后续按需通过插件扩展**：`driver/ippusb`（USB 7/1/4 设备）、`driver/ipp`（真 IPP 设备直转）、`driver/rawlp`（Linux `/dev/usb/lp0`）。
 
 ### D4. 模块拆分：**核心同进程 + 驱动层可独立进程 + 插件契约**
@@ -106,10 +121,14 @@ pkg/
   `Response.Encode()` 已导出，**无需 fork**。
 - **风险**：
   1. `hashicorp/mdns` **不含**服务名冲突解决、`_universal._sub` 子类型、goodbye 包，需自研（附录 A）；
-     且**不能直接用它的 `NewServer`** —— 它内部用 `net.ListenMulticastUDP`，本机实测在 Chrome 占用 5353 时
-     "bind 成功但收不到包"。`discovery/` 须自建 socket（`SO_REUSEADDR` + `IP_ADD_MEMBERSHIP`，见附录 D）；
+     且它的 `NewServer` **忽略了监听错误**（`ipv4List, _ := net.ListenMulticastUDP(...)`），
+     部分失败会**静默降级**；还需**显式传入 FQDN hostName + IP 列表**，
+     否则其 `NewMDNSService` 会回退到 `os.Hostname()`（Windows 上是 NetBIOS 名，无法经 mDNS 解析）
+     导致 SRV 记录目标错误或构造失败。`discovery/` 应自行管理 socket 以固定接口与错误处理；
   2. ~~Chrome 占用 UDP 5353~~ → ✅ **已实证解除**（附录 D）：多进程共存可行；
-     但**必须显式指定组播接口**（本机实测默认组播走 `optun` 而非主 LAN `以太网`）；
+     但**必须显式指定组播接口**（本机实测默认组播走 `optun` 而非主 LAN `以太网`）。
+     ⚠️ 附录 D 曾把"收不到包"误诊为"Go 不设 `SO_REUSEADDR`"——**该归因已撤回**，
+     真正原因是**默认接口选错**（Go 实际会设置 `SO_REUSEADDR`，见[附录 D §D.6](../research/06-mdns-coexistence-verified.md)）；
   3. CUPS 3.x 正在激进重构 —— 但我们自己实现 IPP，反而受益于其"driverless only"转向。
 
 ## 待验证的 P0 项（动工前 / 首个版本必须实证）

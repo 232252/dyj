@@ -506,13 +506,28 @@ CUPS v3 页面同样声明："CUPS v3 is licensed under the Apache License Versi
 
 > **✅ 对「发货产品」的含义**：CUPS 本体是**商业友好**的。你可以链接、嵌入、随产品分发、闭源修改，只需遵守 Apache 2.0 的归属与变更声明要求（并为嵌入场景享受上述例外）。
 
-### 6.2 `cups-filters`：GPL-2（⚠️ 部分核实）
+### 6.2 `cups-filters`：Apache-2.0（含 GPL2/LGPL2 例外）—— **本节已更正**
+
+> **❗ 更正说明**：本节原先写作"GPL-2 / copyleft 风险，采用前必须审计"。**该描述是错误的，现已更正。**
+> 更正依据（Lead 直接抓取一手来源核实）：
+> - `OpenPrinting/cups-filters` 的 `COPYING` 文件中 `License:` 字段逐字为
+>   **`Apache-2.0-with-GPL2-LGPL2-Exception`**（Debian copyright-format 1.0），
+>   正文即 Apache-2.0 许可证文本 + CUPS 的两项例外（嵌入例外、GPLv2 链接例外）。
+>   来源：<https://raw.githubusercontent.com/OpenPrinting/cups-filters/master/COPYING>
+> - GitHub API 对同一仓库返回 `"license": {"spdx_id": "Apache-2.0"}`。
+>
+> **与 `02-prior-art-and-stacks.md` §A.1 一致**（该文一直写的是 Apache-2.0，两者原先相互矛盾，现以本节更正为准）。
 
 - **已核实**：`cups-filters` 是 OpenPrinting 维护的独立项目，其 GitHub 仓库描述为 "filters, backends, driverless utility, ... **Everything which CUPS 2.x needs to be used on non-Mac systems**"。来源：[OpenPrinting/cups-filters](https://github.com/OpenPrinting/cups-filters)。
 - **已核实**：它**曾经是 CUPS 的一部分，后被移出**（ArchWiki："Those are backends, filters, and other binaries that were **once part of CUPS but have been dropped from the project**"）。来源：[ArchWiki CUPS §OpenPrinting CUPS filters](https://wiki.archlinux.org/title/CUPS)。
-- **⚠️ 未核实**：仓库页面的许可证徽章/文本未在抓取内容中呈现，**我未能从官方来源逐字确认其许可证是 "GPL-2.0-only" 还是 "GPL-2.0-or-later"**。写作 GPL-2 是符合业界共识的，但**精确的 SPDX 标识需要在采用前从仓库 LICENSE 文件确认**。
+- **已核实（更正后）**：许可证为 **Apache-2.0-with-GPL2-LGPL2-Exception** ——
+  与 CUPS 本体同为商业友好，**且带有"允许链接 GPL2-only 软件"的例外**。
 
-> **⚠️ 对产品的含义**：**GPL-2 是 copyleft。** 如果你的产品**链接**了 cups-filters 的代码，你可能需要以 GPL-2 发布你的产品。**务必在采用前完成许可证审计**（确认是否 only / or-later，以及你的使用方式是「链接/派生」还是仅为「独立进程调用」—— 后者通常不构成派生作品，但这是法律判断，需咨询律师）。
+> **✅ 更正后对产品的含义**：`cups-filters` **不是** copyleft，**不构成"链接即需 GPL-2 开源"的风险**。
+> 原先"采用前必须审计"的结论**不再成立**。
+> **这削弱了"为规避许可证而避免 CUPS 组件"的论据** —— 但注意：
+> 我们避免驱动栈的主因是**体积与维护成本**（cups-filters 246 MB），而非许可证。
+> **真正的许可证地雷是 Ghostscript（见 6.3）**，而"只接受 PDF/PWG/JPEG 即无需光栅化"的策略**独立成立**。
 
 ### 6.3 Ghostscript：AGPL（⚠️ 部分核实）
 
@@ -527,18 +542,18 @@ CUPS v3 页面同样声明："CUPS v3 is licensed under the Apache License Versi
 >
 > 推理链：
 > - Ghostscript 的职责是 **把 PDF（或 PostScript）渲染成光栅/其他 PDL**，供**不理解 PDF 的设备**使用（ArchWiki："Non-PDF printers require ghostscript"）。
-> - 如果**目标设备自己能直接吃 PDF / PWG Raster / URF / PostScript**，就**不存在渲染这一步**，Ghostscript 就是多余的。
-> - 现代设备（2010 年后）绝大多数支持 AirPrint / IPP Everywhere，**天然接受 PDF 与 PWG Raster**（PWG 官方："Required: IPP/2.0, DNS-SD, PWG Raster and JPEG JFIF file formats... Recommended: PDF"，来源 [IPP Everywhere 页面](https://www.pwg.org/ipp/everywhere.html)）。
+> - 如果**目标设备自己能直接吃 PDF / PWG Raster / JPEG / PostScript**，就**不存在渲染这一步**，Ghostscript 就是多余的。
+> - 现代设备（2010 年后）绝大多数支持 AirPrint / IPP Everywhere，**天然接受 PDF 与 PWG Raster**（PWG 官方："Required: IPP/2.0, DNS-SD, **PWG Raster and JPEG JFIF** file formats (JPEG only required for color printers). **Recommended**: PDF, IPP-USB"，来源 [IPP Everywhere 页面](https://www.pwg.org/ipp/everywhere.html)）。
 >
-> **所以：优先选择「支持 PDF/PWG Raster 的设备 + 不做渲染的服务端」，可以从架构上完全绕开 Ghostscript 的许可证风险。**
+> **所以：优先选择「支持 PWG Raster / PDF 的设备 + 不做渲染的服务端」，可以从架构上完全绕开 Ghostscript 的许可证风险。**
 
 ### 6.4 许可证速查表
 
 | 组件 | 许可证 | 已核实程度 | 产品化含义 |
 |---|---|---|---|
 | **CUPS (OpenPrinting)** | **Apache-2.0** + 嵌入例外 + GPLv2 链接例外 | ✅ 官方许可证页面 | **商业友好**，可链接/嵌入/闭源分发 |
-| **cups-filters** | GPL-2（only/or-later 待确认） | ⚠️ 项目归属已核实，许可证文本未核实 | **copyleft 风险**，采用前必须审计 |
-| **Ghostscript** | AGPL（待官方页面确认） | ⚠️ Artifex 独家授权已核实，许可证名未核实 | **最高风险**；**可通过只接受 PDF/PWG Raster/URF/PS 输入来完全规避** |
+| **cups-filters** | **Apache-2.0-with-GPL2-LGPL2-Exception** | ✅ `COPYING` 原文 + GitHub API | **商业友好**（**已更正**：非 GPL-2，无 copyleft 风险） |
+| **Ghostscript** | AGPL（待官方页面确认） | ⚠️ Artifex 独家授权已核实，许可证名未核实 | **最高风险**；**可通过只接受 PDF/PWG Raster/JPEG 输入来完全规避** |
 | **RFC 文档中的代码组件** | Simplified BSD（RFC 信托法律条款 §4.e） | ✅ RFC 8010/8011 版权声明原文 | 提取示例代码需附 BSD 文本 |
 
 （RFC 版权声明原文："Code Components extracted from this document must include Simplified BSD License text as described in Section 4.e of the Trust Legal Provisions"—— 见 [RFC 8010](https://www.rfc-editor.org/rfc/rfc8010.txt) 与 [RFC 8011](https://www.rfc-editor.org/rfc/rfc8011.txt)。）
@@ -585,7 +600,7 @@ CUPS v3 页面同样声明："CUPS v3 is licensed under the Apache License Versi
 | 🔴 **P0** | **Windows IPP 客户端实际发送什么**：`document-format`（PDF？XPS？PWG Raster？）、使用哪些操作与属性 | 决定服务端必须支持哪些文档格式与属性，否则 Windows 打不出来 | 用 `ipptool` 或在服务端加日志抓真实 Windows 客户端的请求 |
 | 🟠 **P1** | **Windows Protected Print Mode 官方原文**：引入版本、Mopria 认证要求、是否禁用第三方 v3/v4 驱动 | 决定未来 Windows 客户端的可行性边界 | 重新定位 `modern-print-platform` 页面的有效 URL（本次重定向到 support.microsoft.com 后 404） |
 | 🟠 **P1** | **LPR Port Monitor 是否为 Windows 可选功能及其确切名称** | 决定 LPR 兜底路径是否可行 | Microsoft Learn 的 Windows 可选功能 / Features on Demand 文档 |
-| 🟡 **P2** | **cups-filters 的确切 SPDX 许可证**（GPL-2.0-only vs or-later） | 决定能否链接进闭源产品 | 读仓库 LICENSE 文件 |
+| ✅ **已解决** | ~~**cups-filters 的确切 SPDX 许可证**（GPL-2.0-only vs or-later）~~ | **已实测为 `Apache-2.0-with-GPL2-LGPL2-Exception`，非 GPL-2** | 见 §6.2 更正说明 |
 | 🟡 **P2** | **Ghostscript 的确切许可证**（AGPL-3.0？） | 决定规避策略的紧迫性 | 读 Artifex licensing 页面（本次未取到） |
 | 🟡 **P2** | **PWG ippsample 的许可证** | 若采用方案 D 则关键 | 读仓库 LICENSE |
 | 🟢 **P3** | **CUPS 重新许可为 Apache-2.0 的确切年份与公告** | 仅影响文献引用准确性，不影响决策 | CUPS 历史/发布说明 |

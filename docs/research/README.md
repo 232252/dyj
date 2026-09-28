@@ -31,7 +31,7 @@
 | --- | --- | --- | --- |
 | **1** | **自研 IPP 服务端能否被 Windows 11 直接添加成功？** | **本项目核心验收标准**；若不成立则整个方案不成立 | 起最小 IPP 服务端 → Win11「添加打印机(IP 地址)」→ 真机打印 |
 | **2** | **Windows 内置 IPP 客户端实际发送什么文档格式**（PDF？PWG Raster？XPS？） | 直接决定 `document-format-supported` 必须包含什么，否则 Windows 打不出来 | `ipptool` 或抓包观察真实 Windows 请求 |
-| ~~3~~ | ~~mDNS 能否与已占用 5353 的 Chrome 共存？~~ | ✅ **已实证解除**（[附录 D](06-mdns-coexistence-verified.md)） | 见附录 D：**共存可行**，但**禁用 `net.ListenMulticastUDP`**，须自建 socket + 显式指定接口 |
+| ~~3~~ | ~~mDNS 能否与已占用 5353 的 Chrome 共存？~~ | ✅ **已实证解除**（[附录 D](06-mdns-coexistence-verified.md)） | 共存**可行**。⚠️ 原"Go 不设 `SO_REUSEADDR`"归因**已被对抗性核查推翻**，真正原因是**默认组播接口选错**；详见 [附录 D §D.6](06-mdns-coexistence-verified.md) |
 | **4** | AirPrint 的确切要求（`urf` TXT 取值、`_universal._sub._ipp._tcp` 是否存在、必需属性） | 决定 macOS/iOS 能否发现；**Apple 规范原文本次取不到** | 跑 `ippeveprinter`，用 `dns-sd -B/-L` 观察其**实际**广播的 TXT 键 |
 | **5** | IPP Everywhere 必需属性表能否通过 `ipptool` 官方测试套件？ | 属性缺失是 AirPrint 报错 21345 类问题的根源 | `ipptool` + `get-printer-attributes-suite.test` 对拍 |
 | **6** | 打印机休眠时端口全关（附录 C.4），如何判断设备可用性？ | 不能用端口扫描判活；影响作业失败处理 | 走 spooler 队列状态查询而非端口扫描 |
@@ -40,6 +40,7 @@
 | ~~9~~ | ~~`go-ipp` 响应编码器为包内私有，构造响应的可行路径~~ | ✅ **已实证**（[附录 E](07-go-ipp-server-capability.md)）：`Response.Encode()` 已导出、**无需 fork**；**但发现新缺口** ↓ | 见下方新增项 |
 | **10** | **`go-ipp` 缺少 IPP Everywhere 必需属性**（映射表仅 70 项，`-supported` 系列几乎全缺） | 决定 `pkg/attributes/` 必须自研"带显式 tag 的属性写入器"；**直接影响工作量估算** | 见附录 E §E.2；用 `ipptool` 对拍 |
 | **11** | 自研属性写入器的 `operations-supported` 等 **1setOf enum** 必须写大端 2 字节 | 手写 RFC 8010 最易错处；写错则客户端不认 | 用 `ipptool` 验证；参考附录 E §E.3 |
+| **12** | **彩色机的 `document-format-supported` 是否必须含 `image/jpeg`** | PWG 原文 "JPEG only required for color printers"，但**"彩色机"的判定标准未核实**；本机目标机型是彩色机 | 复核 PWG 5100.14；以 `color-supported` 判定 |
 
 ## 来源可靠性说明
 
@@ -47,8 +48,13 @@
 - 本次会话中 **`web_search` 工具全程不可用**（DeepSeek API 返回 HTTP 401），
   所有调研均通过直接 `web_fetch` 已知权威 URL + GitHub API 完成。
 - 凡未取得权威原文的论断，均显式标注 `[未验证]` / ⚠️，**未编造任何 RFC 编号、端口或 API 细节**。
-- 已知并已修正的简报事实错误：
+- **已完成一轮对抗性事实核查**（专门试图推翻结论），结果与全部更正见
+  [附录 F](08-independent-review.md) §F.0。**3 项结论被推翻/高估，均已在原文档就地更正并留痕。**
+- 已知并已修正的事实错误：
   - `savoirfairelinux/ipp-usb` **不存在**（404），正确为 `OpenPrinting/ipp-usb`；
   - `OpenPrinting/ippsample` **404**，正确为 `istopwg/ippsample`；
   - **RFC 3998 不是 INFRA**（它是 Administrative Operations）；INFRA 实为 PWG 5100.18，且本项目不需要；
-  - **`ipps` 默认端口是 631 而非 443**（RFC 7472 §4.3）。
+  - **`ipps` 默认端口是 631 而非 443**（RFC 7472 §4.3）；
+  - **`cups-filters` 不是 GPL-2**，而是 `Apache-2.0-with-GPL2-LGPL2-Exception`（报告 01 与 02 曾互相矛盾）；
+  - **Go 的 `net.ListenMulticastUDP` 确实会设置 `SO_REUSEADDR`**（附录 D 原归因错误，已撤回）；
+  - **`image/urf` 不是 IPP Everywhere 必需格式**；彩色机必需 **JPEG JFIF**。
