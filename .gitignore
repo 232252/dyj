@@ -96,3 +96,11 @@ CMakeFiles/
 
 # ---- Research scratch (keep generated reports out of git unless curated) ----
 docs/research/*.local.md
+
+# build artifacts
+dyj
+dyj.exe
+dist/
+
+# local scanner cache
+.mimosa/
