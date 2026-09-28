@@ -95,8 +95,15 @@ pkg/
 ## 后果
 
 - **正面**：三平台免运行时分发；零驱动客户端体验；驱动层可无限扩展而不动核心；许可证风险可控（见 ADR-0003）。
-- **负面**：**IPP 服务端生态在任何语言中都近乎空白**，RFC 8010 编解码与 IPP Everywhere 必需属性表需大量自研；
-  `go-ipp` 的**响应编码器是包内私有的**，需 fork 加导出包装或自行序列化（附录 A）。
+- **负面**：**IPP 服务端生态在任何语言中都近乎空白**，RFC 8010 编解码与 IPP Everywhere 必需属性表需大量自研。
+  实测（[附录 E](../research/07-go-ipp-server-capability.md)）：`go-ipp` 的 `AttributeTagMapping` **只认识 70 个属性名**，
+  **缺少几乎所有 IPP Everywhere/AirPrint 必需的 `-supported`/`-default` 属性**
+  （`document-format-supported`、`operations-supported`、`urf-supported`、`media-supported` 等均缺失），
+  且 `Encode` 遇未知属性**直接报错**、无绕过参数。
+  → **必须自研"带显式 tag 的 RFC 8010 属性写入器"**，放在 `pkg/attributes/`，用 `ipptool` 对拍验收。
+  可复用的部分是：`NewRequestDecoder`（请求解析）、属性值类型解码、报文框架、以及
+  **自动保证 `attributes-charset` 第一 / `attributes-natural-language` 第二**的强制顺序；
+  `Response.Encode()` 已导出，**无需 fork**。
 - **风险**：
   1. `hashicorp/mdns` **不含**服务名冲突解决、`_universal._sub` 子类型、goodbye 包，需自研（附录 A）；
      且**不能直接用它的 `NewServer`** —— 它内部用 `net.ListenMulticastUDP`，本机实测在 Chrome 占用 5353 时

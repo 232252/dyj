@@ -12,6 +12,7 @@
 | [`04-microsoft-driver-timeline.md`](04-microsoft-driver-timeline.md) | **附录 B**：微软打印驱动淘汰时间表（一手原文逐条核实） | ✅ Lead 实证 |
 | [`05-environment-probe.md`](05-environment-probe.md) | **附录 C**：本机真实环境实测（网络/打印机/mDNS 占用） | ✅ Lead 实测 |
 | [`06-mdns-coexistence-verified.md`](06-mdns-coexistence-verified.md) | **附录 D**：P0 #3 实证 —— mDNS 与 Chrome 共存**已解除阻塞** | ✅ Lead 实测 |
+| [`07-go-ipp-server-capability.md`](07-go-ipp-server-capability.md) | **附录 E**：`go-ipp` 服务端能力实测 —— **发现属性编码硬缺口** | ✅ Lead 实测 |
 
 ## 三句话结论
 
@@ -35,7 +36,9 @@
 | **6** | 打印机休眠时端口全关（附录 C.4），如何判断设备可用性？ | 不能用端口扫描判活；影响作业失败处理 | 走 spooler 队列状态查询而非端口扫描 |
 | **7** | LPR Port Monitor / Internet Printing Client 是否 Windows 可选功能及其名称 | 调研未核实；影响客户端引导文档 | 提权后 `Get-WindowsOptionalFeature` |
 | **8** | Windows Protected Print Mode (WPPM) 的实际行为 | 官方正文取不到（404），不要断言 | 需权威来源或实测 |
-| **9** | `go-ipp` 响应编码器为包内私有，构造响应的可行路径 | 影响 `ipp/` 模块工作量 | fork 加导出包装 vs 自行按 RFC 8010 序列化，二选一 |
+| ~~9~~ | ~~`go-ipp` 响应编码器为包内私有，构造响应的可行路径~~ | ✅ **已实证**（[附录 E](07-go-ipp-server-capability.md)）：`Response.Encode()` 已导出、**无需 fork**；**但发现新缺口** ↓ | 见下方新增项 |
+| **10** | **`go-ipp` 缺少 IPP Everywhere 必需属性**（映射表仅 70 项，`-supported` 系列几乎全缺） | 决定 `pkg/attributes/` 必须自研"带显式 tag 的属性写入器"；**直接影响工作量估算** | 见附录 E §E.2；用 `ipptool` 对拍 |
+| **11** | 自研属性写入器的 `operations-supported` 等 **1setOf enum** 必须写大端 2 字节 | 手写 RFC 8010 最易错处；写错则客户端不认 | 用 `ipptool` 验证；参考附录 E §E.3 |
 
 ## 来源可靠性说明
 

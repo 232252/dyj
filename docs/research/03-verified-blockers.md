@@ -36,14 +36,24 @@ func NewAttributeDecoder(r io.Reader) *AttributeDecoder
 ```
 
 **重要细节（必须提前知道）**：`newRequestEncoder` 与 `newResponseEncoder` 是**小写开头的包内私有函数**。
-也就是说，从库外**无法直接**调用响应编码器。这意味着：
+但**这不构成障碍** —— 实测确认 `Response` 结构体自带**导出的** `Encode()` 方法，它内部封装了私有编码器：
 
-- 解析客户端请求：**直接用** `NewRequestDecoder`，没问题。
-- 构造服务端响应：可能需要**自行补齐**导出入口（fork 后加一行导出包装，或按 RFC 8010 自己写编码器）。
-  `Response`/`Request`/`Attribute` 等**类型**是导出的，所以更可能的做法是构造好结构体后，自己按 RFC 8010 序列化。
+```go
+func (r *Response) Encode() ([]byte, error)   // ✅ 已导出，服务端可直接用
+```
 
-**对项目排期的影响**：IPP 响应编码这一小块仍有自研/打补丁的可能，**但它是一个边界清晰、可用 `ipptool` 对拍的小模块**，
-不构成"从零手写 IPP 协议栈"的量级。这也再次印证了简报的结论：**IPP 服务端生态是空缺的，别指望开箱即用**。
+**✅ 已实测验证**：用 `NewRequestDecoder` 解析真实 `Get-Printer-Attributes` 请求、
+再用 `NewResponse(...)` + `Response.Encode()` 产出响应，**全程通过，无需 fork**。
+
+> ⚠️ **但实测发现了另一处更严重的缺口**：`AttributeTagMapping` 只认识 **70 个属性名**，
+> **缺少几乎所有 IPP Everywhere / AirPrint 必需的 `-supported` / `-default` 属性**
+> （如 `document-format-supported`、`operations-supported`、`urf-supported`、`media-supported` 等），
+> 且 `Encode` 遇到未知属性名会**直接报错**。
+> **详见 [附录 E：go-ipp 服务端能力实测](07-go-ipp-server-capability.md)** —— 该附录给出完整清单与绕过方案。
+
+**对项目排期的影响**：IPP 响应编码这一块**仍需自研"带显式 tag 的属性写入器"**
+（覆盖 70 项映射之外的全部能力属性）。**这仍是一个边界清晰、可用 `ipptool` 对拍的小模块**，
+但它比附录 A 最初的估计要大 —— 印证了简报的结论：**IPP 服务端生态是空缺的，别指望开箱即用**。
 
 ---
 
