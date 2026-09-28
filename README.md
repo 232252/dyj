@@ -65,4 +65,4 @@ dyj serve --printer usb:/dev/usb/lp0 --name "Office Printer"
 
 ## 许可证
 
-尚未确定 —— 见 [ADR-0002](docs/adr/0002-license.md)（待决，涉及 CUPS/GPL 传染性评估）。
+尚未确定 —— 见 [ADR-0002](docs/adr/0003-license.md)（待决，涉及 CUPS/GPL 传染性评估）。
