@@ -9,6 +9,7 @@ package client
 import (
 	"bytes"
 	"compress/gzip"
+	"crypto/tls"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -35,6 +36,18 @@ type Client struct {
 
 // Parse builds a Client for a printer URI.
 func Parse(uri, user string) (*Client, error) {
+	c, err := parse(uri, user, false)
+	return c, err
+}
+
+// ParseInsecure builds a Client that accepts self-signed ipps://
+// certificates (the AirPrint-class deployment: printers generate their
+// own cert at first boot).
+func ParseInsecure(uri, user string) (*Client, error) {
+	return parse(uri, user, true)
+}
+
+func parse(uri, user string, insecure bool) (*Client, error) {
 	scheme, rest, ok := strings.Cut(uri, "://")
 	if !ok || (scheme != "ipp" && scheme != "ipps") {
 		return nil, fmt.Errorf("client: URI %q must be ipp:// or ipps://", uri)
@@ -49,7 +62,11 @@ func Parse(uri, user string) (*Client, error) {
 	if _, _, err := splitHostPort(hostport); err != nil {
 		return nil, fmt.Errorf("client: URI %q has a malformed host:port", uri)
 	}
-	return &Client{URI: uri, User: user, HTTP: &http.Client{Timeout: 10 * time.Minute}}, nil
+	transport := &http.Transport{}
+	if insecure {
+		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} // self-signed printer cert
+	}
+	return &Client{URI: uri, User: user, HTTP: &http.Client{Timeout: 10 * time.Minute, Transport: transport}}, nil
 }
 
 func splitHostPort(hostport string) (string, string, error) {

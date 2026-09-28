@@ -174,8 +174,9 @@ func TestFullPipelineGzipSubmission(t *testing.T) {
 	for _, p := range pages {
 		_ = w.WritePage(p)
 	}
-	gz := gzipBytes(t, raw.Bytes())
-	jobID, err := f.client.PrintJob(bytes.NewReader(gz), int64(len(gz)),
+	// The CLIENT compresses (like a real CUPS/Windows client would):
+	// one gzip layer end to end, unwrapped exactly once at the server.
+	jobID, err := f.client.PrintJob(bytes.NewReader(raw.Bytes()), int64(raw.Len()),
 		"image/pwg-raster", client.PrintOptions{JobName: "gz.txt", Gzip: true})
 	if err != nil {
 		t.Fatal(err)

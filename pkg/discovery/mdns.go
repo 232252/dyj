@@ -651,10 +651,29 @@ func scoreIface(ifi *net.Interface) int {
 	if ip.IsLinkLocalUnicast() {
 		return 50 // 169.254.x.x APIPA: last resort
 	}
+	if isDockerBridge(ip) {
+		// Container bridges (172.17-172.31) are private but other LAN
+		// hosts cannot reach them; advertising them first yields
+		// unreachable adminurl/printer URIs.
+		return 30
+	}
 	if ip.IsPrivate() {
 		return 0
 	}
 	return 10
+}
+
+// isDockerBridge reports whether ip falls into the default Docker
+// bridge pool 172.17.0.0/16 .. 172.31.255.255.
+func isDockerBridge(ip net.IP) bool {
+	if !ip.IsPrivate() {
+		return false
+	}
+	v := ip.To4()
+	if v == nil {
+		return false
+	}
+	return v[0] == 172 && v[1] >= 17 && v[1] <= 31
 }
 
 // SelectInterfaces filters interfaces by an explicit allow-list of names.
@@ -779,7 +798,9 @@ func BuildTXT(p TXTParams) []string {
 		p.Type = "dyj shared printer"
 	}
 	if p.PDL == "" {
-		p.PDL = "application/pdf,image/pwg-raster,image/jpeg,image/urf"
+		// Keep in lockstep with the document formats pkg/render can
+		// actually decode (ADR-0007): pdl= is a promise, not a wish.
+		p.PDL = "image/pwg-raster,image/jpeg,image/png,text/plain"
 	}
 	if p.UUID == "" {
 		p.UUID = "00000000-0000-4000-8000-000000000001"
@@ -809,7 +830,9 @@ func BuildTXT(p TXTParams) []string {
 		"printer-type=0x0000",
 		"kind=document",
 		"PaperMax=legal-A4",
-		"URF=V1.4,CP1,RS300-600,W8,SRGB24",
+		// No URF= key: that would promise Apple AirPrint raster support
+		// we do not implement (ADR-0007). AirPrint clients still browse
+		// _ipp._tcp; they just fall back to the declared pdl=.
 	}
 	for _, k := range sortedKeys(p.Extra) {
 		txt = append(txt, k+"="+p.Extra[k])

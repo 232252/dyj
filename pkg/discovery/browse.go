@@ -205,6 +205,13 @@ func mergeFound(in []Found) []Found {
 	byKey := map[string]*Found{}
 	var order []string
 	for _, f := range in {
+		// An entry without SRV has no port and no target: RFC 6763
+		// requires SRV+TXT for a browsable service, so PTR targets that
+		// never resolved (e.g. a service-type name seen in a
+		// _services._dns-sd meta-query answer) are dropped.
+		if f.Port == 0 || f.Host == "" {
+			continue
+		}
 		key := fmt.Sprintf("%s|%s|%d", f.Instance, f.Host, f.Port)
 		if cur, ok := byKey[key]; ok {
 			cur.Addrs = appendUnique(cur.Addrs, f.Addrs...)

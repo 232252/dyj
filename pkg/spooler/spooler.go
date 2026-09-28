@@ -18,7 +18,6 @@
 package spooler
 
 import (
-	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
@@ -237,17 +236,14 @@ func (s *Spooler) AddDocument(id int32, doc ipp.Document, last bool) error {
 		s.mu.Unlock()
 		return ipp.ErrJobFinished
 	}
-	// Resolve the document stream (decompressing as declared) BEFORE
-	// releasing the lock: reading happens outside the lock.
+	// Document bytes arrive ALREADY DECOMPRESSED: the IPP server owns
+	// the raw wire stream and unwraps compression exactly once
+	// (ipp.openDocument). doc.Compressed is metadata for the record,
+	// not an instruction — decompressing here again would consume the
+	// already-plain pixels as a gzip header (caught by the real CUPS
+	// client: gzip-of-plain fails with "invalid header" and the job
+	// stuck in held).
 	rdr := doc.Data
-	if doc.Compressed == "gzip" {
-		zr, err := gzip.NewReader(doc.Data)
-		if err != nil {
-			s.mu.Unlock()
-			return fmt.Errorf("spooler: bad gzip stream: %w", err)
-		}
-		rdr = zr
-	}
 	index := len(j.Docs)
 	format := doc.Format
 	if format == "" || format == "application/octet-stream" {
