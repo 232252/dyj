@@ -1,0 +1,98 @@
+# ---- OS cruft ----
+.DS_Store
+Thumbs.db
+desktop.ini
+*~
+*.swp
+
+# ---- Editors / IDEs ----
+.vscode/*
+!.vscode/settings.json.example
+!.vscode/extensions.json
+.idea/
+*.iml
+
+# ---- Secrets / local config (never commit real credentials) ----
+.env
+.env.*
+!.env.example
+*.local.toml
+*.secret
+
+# ---- Windows ----
+*.exe.stackdump
+*.pdb
+*.ilk
+*.obj
+*.o
+*.a
+*.lib
+*.dll
+*.exp
+*.suo
+*.ncb
+*.opensdf
+*.sdf
+
+# ---- Unix builds ----
+*.so
+*.so.*
+*.dylib
+
+# ---- Rust ----
+target/
+**/*.rs.bk
+cargo-timings/
+
+# ---- Go ----
+/bin/
+/dist/
+*.test
+*.out
+vendor/
+
+# ---- Node ----
+node_modules/
+.pnpm-store/
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.next/
+.nuxt/
+*.tsbuildinfo
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+eggs/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ---- Build output ----
+out/
+build/
+cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+
+# ---- Runtime / test artifacts ----
+*.spool
+*.pwg
+*.urf
+/run/
+/tmp/
+/spool/
+/logs/
+*.log
+
+# ---- Research scratch (keep generated reports out of git unless curated) ----
+docs/research/*.local.md

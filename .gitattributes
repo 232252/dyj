@@ -1,0 +1,23 @@
+# Normalize line endings: LF in the repo, native on checkout.
+* text=auto eol=lf
+
+# Scripts must stay LF-only so they run on Linux/macOS.
+*.sh            text eol=lf
+*.bash          text eol=lf
+*.ps1           text eol=crlf
+*.bat           text eol=crlf
+*.cmd           text eol=crlf
+
+# Binary-ish assets: never touch.
+*.png           binary
+*.jpg           binary
+*.jpeg          binary
+*.gif           binary
+*.ico           binary
+*.pdf           binary
+*.pwg           binary
+*.urf           binary
+
+# Keep diffs reviewable.
+*.lock          linguist-generated
+docs/research/** linguist-documentation
