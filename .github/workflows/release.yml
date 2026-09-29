@@ -31,6 +31,8 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "stable"
+      - name: Install go-winres (Windows exe icon/version resources)
+        run: go install github.com/tc-hib/go-winres@latest
       - name: Build all platform binaries
         run: |
           VERSION="${GITHUB_REF_NAME#v}" ./scripts/build-all.sh

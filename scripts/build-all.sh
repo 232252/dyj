@@ -11,6 +11,29 @@ VERSION=${VERSION:-dev}
 COMMIT=${COMMIT:-$(git rev-parse --short HEAD 2>/dev/null || echo unknown)}
 LDFLAGS="-s -w"
 
+# Windows exe resources (brand icon + version info + manifest,
+# docs/research/11 §4.3). Committed rsrc_*.syso files are the fallback;
+# when go-winres is available and VERSION is a real semver, restamp so
+# the file properties carry the release version.
+if command -v go-winres >/dev/null 2>&1 && [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "stamping Windows resources (go-winres, VERSION=$VERSION)"
+    for exe in dyj dyj-tray; do
+        pkg="cmd/$exe"
+        case "$exe" in
+            dyj) desc="dyj - LAN printer sharing service"; manifest=cli ;;
+            *)   desc="dyj system tray";                   manifest=gui ;;
+        esac
+        go-winres simply --arch amd64,arm64 --out "$pkg/rsrc" \
+            --product-version "$VERSION.0" --file-version "$VERSION.0" \
+            --product-name "dyj" --file-description "$desc" \
+            --copyright "Copyright dyj maintainers, Apache-2.0" \
+            --original-filename "$exe.exe" \
+            --icon assets/brand/dyj.ico --manifest "$manifest"
+    done
+else
+    echo "keeping committed rsrc_*.syso (install go-winres + set VERSION=x.y.z to restamp)"
+fi
+
 mkdir -p dist
 rm -f dist/dyj-*
 

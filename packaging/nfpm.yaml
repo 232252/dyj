@@ -40,6 +40,21 @@ contents:
     type: config|noreplace
   - src: packaging/linux/dyj-admin.desktop
     dst: /usr/share/applications/dyj-admin.desktop
+  # brand icon (docs/research/11 §4.3): hicolor size tiles + scalable SVG
+  - src: packaging/linux/icons/hicolor/16/apps/dyj.png
+    dst: /usr/share/icons/hicolor/16x16/apps/dyj.png
+  - src: packaging/linux/icons/hicolor/32/apps/dyj.png
+    dst: /usr/share/icons/hicolor/32x32/apps/dyj.png
+  - src: packaging/linux/icons/hicolor/48/apps/dyj.png
+    dst: /usr/share/icons/hicolor/48x48/apps/dyj.png
+  - src: packaging/linux/icons/hicolor/64/apps/dyj.png
+    dst: /usr/share/icons/hicolor/64x64/apps/dyj.png
+  - src: packaging/linux/icons/hicolor/128/apps/dyj.png
+    dst: /usr/share/icons/hicolor/128x128/apps/dyj.png
+  - src: packaging/linux/icons/hicolor/256/apps/dyj.png
+    dst: /usr/share/icons/hicolor/256x256/apps/dyj.png
+  - src: packaging/linux/icons/hicolor/scalable/apps/dyj.svg
+    dst: /usr/share/icons/hicolor/scalable/apps/dyj.svg
 
 overrides:
   deb:
