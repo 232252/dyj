@@ -20,6 +20,7 @@
 | [`06-mdns-coexistence-verified.md`](06-mdns-coexistence-verified.md) | **附录 D**：P0 #3 实证 —— mDNS 与 Chrome 共存**已解除阻塞** | ✅ Lead 实测 |
 | [`07-go-ipp-server-capability.md`](07-go-ipp-server-capability.md) | **附录 E**：`go-ipp` 服务端能力实测 —— **发现属性编码硬缺口** | ✅ Lead 实测 |
 | [`08-independent-review.md`](08-independent-review.md) | **附录 F**：对调研结论的独立复核（含"否决 Rust"的关键论据确认） | ✅ Lead 复核 |
+| [`10-ui-and-platform-deployment.md`](10-ui-and-platform-deployment.md) | **Phase 1 前瞻**：GUI 选型（Web 管理页+可选托盘）、控件组件化、三平台安装/自启/防火墙/签名/分发（Win: Inno+SCM；Linux: nfpm+systemd+avahi；macOS: launchd+brew）；含 `service_unix.go` 修正清单与 cups 后端 gap | ✅ 调研产出（待 ADR 定稿） |
 
 ## 三句话结论
 
