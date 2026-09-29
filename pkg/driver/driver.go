@@ -158,6 +158,26 @@ func decodeInto(ctx context.Context, doc Document, opt DecoderOptions, out chan<
 			return err
 		}
 		return emit(ctx, pgs, out)
+	case "application/pdf":
+		// Optional path: the server declares application/pdf only when
+		// a rasterizer exists (PDFAvailable), so reaching here without
+		// one means a client lied — say so plainly.
+		tool := rasterizer()
+		if tool == "" {
+			return fmt.Errorf("driver: cannot render application/pdf (no pdftoppm on this machine)")
+		}
+		data, err := io.ReadAll(rc)
+		if err != nil {
+			return err
+		}
+		// Page color comes from the PDF itself; opt.Grayscale is
+		// deliberately not forced here (re-rasterizing color PDF pages
+		// to gray by hand loses fidelity poppler already decided).
+		pgs, err := rasterizePDF(ctx, tool, data, dpi)
+		if err != nil {
+			return err
+		}
+		return emit(ctx, pgs, out)
 	default:
 		return fmt.Errorf("driver: cannot render document format %q", doc.Format)
 	}

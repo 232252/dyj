@@ -138,3 +138,39 @@ func isGrayscale(img image.Image) bool {
 func toGray(c color.RGBA) byte {
 	return byte((299*int(c.R) + 587*int(c.G) + 114*int(c.B)) / 1000)
 }
+
+// ImageToPage converts an already page-shaped image — every pixel is
+// layout, e.g. a pdftoppm raster page — into a Page at the given DPI.
+// Unlike ImagePages there is no fitting or margin: the image IS the
+// page. The color space follows the content (sgray when every sampled
+// pixel is neutral, sRGB otherwise), MediaName stays empty because the
+// page size comes from the source document, not from dyj.
+func ImageToPage(img image.Image, dpi int) *Page {
+	b := img.Bounds()
+	w, h := b.Dx(), b.Dy()
+	gray := isGrayscale(img)
+	cs := SRGB
+	if gray {
+		cs = SGray
+	}
+	page := newBlankPage(w, h, cs)
+	stride := page.Header.Stride()
+	for y := 0; y < h; y++ {
+		row := y * stride
+		for x := 0; x < w; x++ {
+			c := img.At(b.Min.X+x, b.Min.Y+y)
+			if gray {
+				r, g, bl, _ := c.RGBA()
+				page.Pix[row+x] = toGray(color.RGBA{R: uint8(r >> 8), G: uint8(g >> 8), B: uint8(bl >> 8)})
+			} else {
+				r, g, bl, _ := c.RGBA()
+				base := row + x*3
+				page.Pix[base+0] = uint8(r >> 8)
+				page.Pix[base+1] = uint8(g >> 8)
+				page.Pix[base+2] = uint8(bl >> 8)
+			}
+		}
+	}
+	page.Header.XDPI, page.Header.YDPI = dpi, dpi
+	return page
+}

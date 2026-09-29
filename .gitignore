@@ -97,9 +97,11 @@ CMakeFiles/
 # ---- Research scratch (keep generated reports out of git unless curated) ----
 docs/research/*.local.md
 
-# build artifacts
-dyj
-dyj.exe
+# build artifacts (root-anchored: a bare "dyj" would also ignore cmd/dyj)
+/dyj
+/dyj.exe
+/dyj-tray
+/dyj-tray.exe
 dist/
 
 # local scanner cache
