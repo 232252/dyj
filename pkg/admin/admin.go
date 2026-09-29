@@ -129,6 +129,14 @@ func jobToJSON(v ipp.JobView) jobJSON {
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Without the trailing slash the browser resolves the page's relative
+	// module URLs ("app.js") against the server root and rejects the IPP
+	// landing page's text/plain as a module MIME — redirect instead of
+	// serving index.html in place (caught by the live UI smoke check).
+	if r.URL.Path == "/admin" {
+		http.Redirect(w, r, "/admin/", http.StatusMovedPermanently)
+		return
+	}
 	path := strings.TrimPrefix(r.URL.Path, "/admin")
 	if path == "" || path == "/" {
 		path = "/index.html"

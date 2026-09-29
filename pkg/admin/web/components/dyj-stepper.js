@@ -8,6 +8,8 @@ class DyjStepper extends HTMLElement {
   #steps = [];
   #cur = 0;
 
+  constructor() { super(); this.attachShadow({ mode: 'open' }); }
+
   set steps(v) { this.#steps = Array.isArray(v) ? v : []; this.#render(); }
   get steps() { return this.#steps.slice(); }
   set step(i) { this.#cur = Math.max(0, i | 0); this.#render(); }

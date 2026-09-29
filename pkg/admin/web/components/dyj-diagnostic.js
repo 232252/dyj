@@ -20,6 +20,8 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&
 class DyjDiagnostic extends HTMLElement {
   #check = null;
 
+  constructor() { super(); this.attachShadow({ mode: 'open' }); }
+
   set check(v) { this.#check = v || {}; this.#render(); }
   get check() { return this.#check; }
 

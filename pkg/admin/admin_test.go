@@ -340,6 +340,21 @@ func TestStaticServesIndex(t *testing.T) {
 	}
 }
 
+// TestSlashlessAdminRedirects guards the trailing-slash redirect: without
+// it the browser resolves relative module URLs against the server root
+// and the UI white-screens (live smoke catch).
+func TestSlashlessAdminRedirects(t *testing.T) {
+	h, _, _ := newTestHandler(t, "")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, loopbackRequest(http.MethodGet, "/admin", nil))
+	if w.Code != http.StatusMovedPermanently {
+		t.Fatalf("code = %d, want 301", w.Code)
+	}
+	if loc := w.Header().Get("Location"); loc != "/admin/" {
+		t.Fatalf("Location = %q, want /admin/", loc)
+	}
+}
+
 func min(a, b int) int {
 	if a < b {
 		return a
