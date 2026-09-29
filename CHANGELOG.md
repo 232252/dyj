@@ -3,6 +3,79 @@
 All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/); versioning: semver.
 
+## [0.2.0] — 2026-09-29
+
+Complete client + server delivery: human-facing UI, real-printer support on
+Linux/macOS, optional PDF, per-platform installers (ADR-0008, ADR-0009;
+research: docs/research/10).
+
+### Added
+- **Web admin UI** (`http://<host>:6631/admin`, embedded, zero build chain):
+  status dashboard, printer/network settings (restart-to-apply), job list
+  with cancel, live SSE log view, first-run wizard with per-platform
+  diagnostics. Vanilla Web Components — one control per file
+  (`pkg/admin/web/components/`), one page per file, zh-CN default + en.
+- **Admin API** under `/admin/api/*`: status, jobs, config
+  (validated, persisted, restart-required), pause/resume, cancel, log SSE,
+  diagnostics. Auth: loopback has full access; LAN gets read-only
+  status/jobs and needs the `X-Dyj-Token` header for everything else
+  (256-bit token in `<stateDir>/admin-token`, printed once at startup).
+- **cups backend** (`-backend cups`, auto-picked when CUPS queues exist):
+  Linux/macOS servers can now share REAL printers — spooled raster pages
+  are wrapped into an image-only PDF (new `render.PagesToPDF`, golden
+  tested) and submitted to a local CUPS queue via lp. Hardened process
+  discipline: pinned absolute executable, argv-array only, bare-token
+  validation for externally-sourced values.
+- **Optional PDF support**: when poppler's `pdftoppm` is installed the
+  server declares `application/pdf` (and syncs the mDNS `pdl=` promise);
+  decoding runs pdftoppm as an external rasterizer. Without it, behavior
+  is byte-identical to 0.1. Client: `dyj print *.pdf` passes PDF through
+  sniffed by `%PDF-` magic.
+- **`dyj doctor`**: per-machine diagnostics (state dir, port, 5353
+  occupancy, TLS cert, PDF capability, firewall guidance, backend probe)
+  in human or `--json` form; the same checks power the admin page.
+- **Windows tray** (`dyj tray` + shipping `dyj-tray.exe`, windowsgui
+  subsystem): status dot icon (green/gray/red), open admin page,
+  pause/resume sharing, HKCU Run autostart toggle, quit-without-touching-
+  the-service. `scripts/build-all.sh` now emits both Windows binaries.
+- **Installers & packaging**:
+  - Linux: `packaging/nfpm.yaml` → deb/rpm (amd64+arm64) shipping the
+    hardened unit into `/usr/lib/systemd/system`, an avahi static service
+    file (`/etc/avahi/services/dyj.service`, `_ipp._tcp` + admin page
+    `_http._tcp`), and an admin-page `.desktop` entry; enable/start via
+    preset semantics; the package never touches the running firewall.
+    `scripts/package-linux.sh` is the one entry point (locally + CI).
+  - Windows: `packaging/windows/dyj.iss` (Inno Setup) — per-machine
+    install, firewall rules pre-created on ALL three profiles, HKLM Run
+    tray autostart, ordered uninstall cleanup with keep-my-data prompt.
+  - macOS: `packaging/macos/dyj.rb` Homebrew formula (with `brew services`
+    support; no notarization needed via the formula path) and
+    `org.dyj.printer.plist` LaunchDaemon template.
+  - `packaging/install.sh`: curl-sh installer for headless hosts.
+  - `.github/workflows/release.yml`: tag → binaries + packages + ISCC
+    installer on the GitHub Release (signing steps pre-wired).
+- **Homebrew-style service support**: `brew services start dyj` maps to
+  `dyj service run` (documented in the formula).
+
+### Changed
+- Linux default backend (no `-backend`): **cups** when local CUPS queues
+  exist, else file. The explicit flag always wins.
+- mDNS TXT `adminurl` now points at `/admin` (previously the bare IPP
+  GET endpoint).
+- `dyj serve` banner prints the admin URL and admin token.
+
+### Fixed
+- **systemd service (`dyj service install`) hardened**: DynamicUser +
+  StateDirectory (no more root), NoNewPrivileges, ProtectSystem=strict,
+  empty capability bounding set (6631/5353 need none), AF_NETLINK allowed
+  for interface enumeration; unit renderer shared by CLI install and the
+  packaged unit (ADR-0009 D3).
+- **launchd service fixed on three counts**: plists are now chowned
+  root:wheel and chmod 644 (launchd otherwise refuses with "Dubious
+  permissions"), load/unload replaced by bootstrap/bootout (10.10+
+  domain syntax, legacy fallback), StandardOutPath added.
+
+
 ## [0.1.0] — 2026-09-29
 
 First working delivery: full server + client, all platforms.

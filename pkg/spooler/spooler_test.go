@@ -282,3 +282,50 @@ func waitForState(t *testing.T, s *Spooler, id int32, want int32, within time.Du
 	v, _ := s.View(id)
 	t.Fatalf("job %d state = %+v, want %d within %s", id, v, want, within)
 }
+
+func TestPauseRejectsNewJobsButLetsQueueFinish(t *testing.T) {
+	backend := &recordingBackend{}
+	s, _ := newTestSpooler(t, backend)
+
+	// Queue one job first: pausing must not touch it.
+	id, err := s.Begin(ipp.JobInfo{UserName: "alice", Name: "before-pause"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddDocument(id, pwgDoc("PWGDATA"), true); err != nil {
+		t.Fatal(err)
+	}
+
+	s.SetAccepting(false)
+	if s.Accepting() {
+		t.Fatal("Accepting() = true right after SetAccepting(false)")
+	}
+	if accepting, _, reasons := s.Status(); accepting || len(reasons) == 0 || reasons[0] != "paused" {
+		t.Fatalf("Status while paused = (%v, %v)", accepting, reasons)
+	}
+	if _, err := s.Begin(ipp.JobInfo{UserName: "bob", Name: "while-paused"}); err != ipp.ErrNotAccepting {
+		t.Fatalf("Begin while paused = %v, want ErrNotAccepting", err)
+	}
+
+	// The pre-pause job still prints to completion.
+	waitForState(t, s, id, ipp.JobStateCompleted, 3*time.Second)
+	if backend.count() != 1 {
+		t.Fatalf("backend printed %d times, want 1", backend.count())
+	}
+
+	s.SetAccepting(true)
+	if !s.Accepting() {
+		t.Fatal("Accepting() = false right after SetAccepting(true)")
+	}
+	if accepting, _, reasons := s.Status(); !accepting || len(reasons) != 0 {
+		t.Fatalf("Status after resume = (%v, %v)", accepting, reasons)
+	}
+	id2, err := s.Begin(ipp.JobInfo{UserName: "bob", Name: "after-resume"})
+	if err != nil {
+		t.Fatalf("Begin after resume: %v", err)
+	}
+	if err := s.AddDocument(id2, pwgDoc("PWGDATA2"), true); err != nil {
+		t.Fatal(err)
+	}
+	waitForState(t, s, id2, ipp.JobStateCompleted, 3*time.Second)
+}

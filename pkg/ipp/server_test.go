@@ -2,8 +2,12 @@ package ipp
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"encoding/hex"
+	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -518,4 +522,66 @@ func secondOr(s []string, def string) string {
 		return s[1]
 	}
 	return def
+}
+
+// TestAdminMountedIPPUndamounted proves the /admin mount coexists with
+// IPP traffic: the management subtree answers, and IPP posts to any
+// other path behave exactly as without the mount.
+func TestAdminMountedIPPUnaffected(t *testing.T) {
+	adminCalled := false
+	admin := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		adminCalled = true
+		fmt.Fprint(w, "admin-ui")
+	})
+	printer := DefaultPrinter()
+	printer.Name = "dyj admin coexist"
+	srv := NewServer(Options{Printer: printer, Admin: admin})
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() { _ = srv.Serve(ln) }()
+	defer srv.Shutdown(context.Background())
+	base := "http://" + ln.Addr().String()
+
+	resp, err := http.Get(base + "/admin/api/status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if !adminCalled || string(body) != "admin-ui" {
+		t.Fatalf("/admin not routed to the admin handler (called=%v body=%q)", adminCalled, body)
+	}
+
+	srv2body := encodeGetPrinterAttrs(t, 11)
+	resp, err = http.Post(base+"/ipp/print", ContentTypeIPP, bytes.NewReader(srv2body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || resp.Header.Get("Content-Type") != ContentTypeIPP {
+		t.Fatalf("IPP POST degraded: status=%d ct=%q", resp.StatusCode, resp.Header.Get("Content-Type"))
+	}
+	raw, _ := io.ReadAll(resp.Body)
+	msg, err := attributes.DecodeMessageStream(bytes.NewReader(raw))
+	if err != nil {
+		t.Fatalf("IPP response not decodable: %v", err)
+	}
+	if msg.Code != uint16(StatusOK) {
+		t.Fatalf("IPP status = 0x%04X, want ok", msg.Code)
+	}
+	var printerGroup *attributes.AttributeGroup
+	for i := range msg.Groups {
+		if msg.Groups[i].Delimiter == attributes.TagPrinterAttributes {
+			printerGroup = &msg.Groups[i]
+		}
+	}
+	if printerGroup == nil {
+		t.Fatal("no printer-attributes group in response")
+	}
+	if got := attributes.GroupFirstString(printerGroup, "printer-name"); got != "dyj admin coexist" {
+		t.Errorf("printer-name = %q", got)
+	}
 }

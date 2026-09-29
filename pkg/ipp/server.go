@@ -61,6 +61,9 @@ type Options struct {
 	// Status is an optional dynamic-state hook; Sink provides it when
 	// it implements StatusProvider, so usually it is left nil.
 	Logger *log.Logger
+	// Admin, when set, is mounted at /admin (web management UI). IPP
+	// traffic keeps any other path, so clients are unaffected.
+	Admin http.Handler
 }
 
 // NewServer creates an IPP server for the given printer profile.
@@ -69,8 +72,16 @@ func NewServer(opts Options) *Server {
 		opts.Logger = log.Default()
 	}
 	s := &Server{printer: opts.Printer, sink: opts.Sink, log: opts.Logger}
+	var handler http.Handler = http.HandlerFunc(s.handle)
+	if opts.Admin != nil {
+		mux := http.NewServeMux()
+		mux.Handle("/admin", opts.Admin)
+		mux.Handle("/admin/", opts.Admin)
+		mux.Handle("/", handler)
+		handler = mux
+	}
 	s.http = &http.Server{
-		Handler:           http.HandlerFunc(s.handle),
+		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 		MaxHeaderBytes:    1 << 16,
 		// No ReadTimeout: a client streaming a 100 MB raster over a slow

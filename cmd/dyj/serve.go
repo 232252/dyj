@@ -208,6 +208,7 @@ func serve(ctx context.Context, o serveOptions) error {
 		Logs:        logRing,
 		Token:       token,
 		Diagnostics: runDiagnostics(o),
+		Web:         admin.DefaultWeb(),
 	})
 	srv := ipp.NewServer(ipp.Options{Printer: printer, Sink: spool, Logger: logger, Admin: adminHandler})
 

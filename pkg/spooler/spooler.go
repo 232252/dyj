@@ -82,6 +82,11 @@ type Spooler struct {
 	order  []int32
 	nextID int32
 
+	// accepting is the operator pause switch (admin API "暂停共享"):
+	// false rejects new jobs at Begin and reports printer-state-reason
+	// "paused"; jobs already queued keep printing.
+	accepting bool
+
 	queue   chan int32
 	wake    chan struct{}
 	cancels map[int32]context.CancelFunc
@@ -106,12 +111,13 @@ func New(opts Options) (*Spooler, error) {
 		logger = log.Default()
 	}
 	s := &Spooler{
-		log:     logger,
-		jobs:    map[int32]*job{},
-		queue:   make(chan int32, 1024),
-		wake:    make(chan struct{}, 1),
-		cancels: map[int32]context.CancelFunc{},
-		start:   time.Now(),
+		log:       logger,
+		jobs:      map[int32]*job{},
+		accepting: true,
+		queue:     make(chan int32, 1024),
+		wake:      make(chan struct{}, 1),
+		cancels:   map[int32]context.CancelFunc{},
+		start:     time.Now(),
 	}
 	// Normalise BEFORE copying into s.opts: s.opts is a value copy, so
 	// fixing the local variable afterwards would leave KeepCompleted at
@@ -194,6 +200,9 @@ func (s *Spooler) Begin(info ipp.JobInfo) (int32, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
+		return 0, ipp.ErrNotAccepting
+	}
+	if !s.accepting {
 		return 0, ipp.ErrNotAccepting
 	}
 	s.nextID++
@@ -368,7 +377,26 @@ func (s *Spooler) Status() (bool, int32, []string) {
 			queued++
 		}
 	}
+	if !s.accepting {
+		return false, int32(queued), []string{"paused"}
+	}
 	return true, int32(queued), nil
+}
+
+// SetAccepting is the operator pause switch. Pausing rejects new jobs
+// (server-error-not-accepting-jobs) and advertises the "paused"
+// printer-state-reason; queued jobs finish printing normally.
+func (s *Spooler) SetAccepting(accepting bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.accepting = accepting
+}
+
+// Accepting reports the current pause switch state.
+func (s *Spooler) Accepting() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.accepting && !s.closed
 }
 
 func stateMatches(state int32, which string) bool {

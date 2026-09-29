@@ -1,0 +1,128 @@
+/* dyj admin UI — design tokens (CSS variables) + app shell layout.
+   Components read only var(--dyj-…); light is primary, dark follows
+   prefers-color-scheme. Quiet, restrained: transitions ≤ .15s. */
+
+:root {
+  color-scheme: light dark;
+  --dyj-bg: #f6f7f9;
+  --dyj-card: #ffffff;
+  --dyj-text: #1f2937;
+  --dyj-text-dim: #6b7280;
+  --dyj-border: #e5e7eb;
+  --dyj-primary: #2563eb;
+  --dyj-primary-contrast: #ffffff;
+  --dyj-primary-weak: #dbeafe;
+  --dyj-success: #16a34a;
+  --dyj-success-weak: #dcfce7;
+  --dyj-warning: #d97706;
+  --dyj-warning-weak: #fef3c7;
+  --dyj-danger: #dc2626;
+  --dyj-danger-weak: #fee2e2;
+  --dyj-radius: 8px;
+  --dyj-font: system-ui, "Segoe UI", "Microsoft YaHei", sans-serif;
+  --dyj-mono: "Consolas", "Courier New", monospace;
+  --dyj-fs-s: 12px;
+  --dyj-fs-m: 14px;
+  --dyj-fs-l: 16px;
+  --dyj-fs-xl: 20px;
+  --dyj-pad-s: 8px;
+  --dyj-pad-m: 16px;
+  --dyj-pad-l: 24px;
+  --dyj-sidebar-w: 224px;
+  --dyj-shadow: 0 1px 2px rgb(0 0 0 / 6%);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --dyj-bg: #111827;
+    --dyj-card: #1f2937;
+    --dyj-text: #f3f4f6;
+    --dyj-text-dim: #9ca3af;
+    --dyj-border: #374151;
+    --dyj-primary: #3b82f6;
+    --dyj-primary-contrast: #ffffff;
+    --dyj-primary-weak: #1e3a5f;
+    --dyj-success: #4ade80;
+    --dyj-success-weak: #14321f;
+    --dyj-warning: #fbbf24;
+    --dyj-warning-weak: #3a2a10;
+    --dyj-danger: #f87171;
+    --dyj-danger-weak: #3f1d1d;
+    --dyj-shadow: 0 1px 2px rgb(0 0 0 / 40%);
+  }
+}
+
+* { box-sizing: border-box; }
+
+html, body { margin: 0; padding: 0; }
+
+body {
+  display: flex;
+  min-height: 100vh;
+  background: var(--dyj-bg);
+  color: var(--dyj-text);
+  font: var(--dyj-fs-m)/1.6 var(--dyj-font);
+  -webkit-font-smoothing: antialiased;
+}
+
+dyj-sidebar { width: var(--dyj-sidebar-w); flex: none; }
+
+main#page {
+  flex: 1;
+  min-width: 0;
+  max-width: 980px;
+  padding: var(--dyj-pad-l);
+}
+
+main#page h1 { font-size: var(--dyj-fs-xl); margin: 0 0 16px; }
+main#page h2 { font-size: var(--dyj-fs-l); margin: 0 0 8px; }
+main#page h3 { font-size: var(--dyj-fs-m); margin: 12px 0 4px; }
+main#page p  { margin: 4px 0; }
+main#page .dim { color: var(--dyj-text-dim); font-size: var(--dyj-fs-m); }
+main#page section { margin-bottom: 16px; }
+main#page code, main#page pre { font-family: var(--dyj-mono); }
+
+@media (max-width: 720px) {
+  body { flex-direction: column; }
+  dyj-sidebar { width: auto; }
+  main#page { padding: 16px; }
+}
+
+/* LAN token bar (shown by app.js when the API answers 401) */
+#dyj-token-bar {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 800;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: var(--dyj-card);
+  border-bottom: 1px solid var(--dyj-border);
+  box-shadow: var(--dyj-shadow);
+  font-size: var(--dyj-fs-m);
+}
+#dyj-token-bar .tok-text { display: flex; flex-direction: column; min-width: 220px; flex: 1; }
+#dyj-token-bar strong { font-size: var(--dyj-fs-m); }
+#dyj-token-bar span { color: var(--dyj-text-dim); font-size: var(--dyj-fs-s); }
+#dyj-token-bar input {
+  width: 320px; max-width: 100%;
+  font: inherit; color: var(--dyj-text);
+  padding: 8px 10px;
+  border: 1px solid var(--dyj-border);
+  border-radius: var(--dyj-radius);
+  background: var(--dyj-bg);
+}
+#dyj-token-bar input:focus-visible { outline: 2px solid var(--dyj-primary); outline-offset: 1px; }
+#dyj-token-bar input.bad { border-color: var(--dyj-danger); }
+#dyj-token-bar .tok-btn {
+  font: inherit; padding: 8px 14px;
+  border: 1px solid var(--dyj-primary);
+  border-radius: var(--dyj-radius);
+  background: var(--dyj-primary);
+  color: var(--dyj-primary-contrast);
+  cursor: pointer;
+}
+#dyj-token-bar .tok-btn:focus-visible { outline: 2px solid var(--dyj-primary); outline-offset: 2px; }
+#dyj-token-bar .tok-err { color: var(--dyj-danger); font-size: var(--dyj-fs-s); }
