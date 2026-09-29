@@ -53,6 +53,7 @@ func Run(opts Options) error {
 	)
 
 	onReady := func() {
+		refreshTaskbarTheme()
 		systray.SetIcon(IconBytes(StateDown))
 		systray.SetTooltip("dyj — 连接中…")
 
@@ -136,6 +137,7 @@ func Run(opts Options) error {
 
 // refresh repaints icon, tooltip and the pause label from state.
 func refresh(c *Controller, itemPause *systray.MenuItem) {
+	refreshTaskbarTheme()
 	st := c.State()
 	systray.SetIcon(IconBytes(st))
 	queued := c.Queued()
@@ -164,6 +166,24 @@ func refresh(c *Controller, itemPause *systray.MenuItem) {
 	if st != StateDown && itemPause != nil {
 		itemPause.Enable()
 	}
+}
+
+// refreshTaskbarTheme picks glyph ink from the shell's AppsUseLightTheme
+// (HKCU Themes\Personalize). Best-effort: unreadable registry keeps the
+// current ink. Called on ready and on every state repaint, which is when
+// the theme may plausibly have flipped.
+func refreshTaskbarTheme() {
+	k, err := registry.OpenKey(registry.CURRENT_USER,
+		`Software\Microsoft\Windows\CurrentVersion\Themes\Personalize`, registry.QUERY_VALUE)
+	if err != nil {
+		return
+	}
+	defer k.Close()
+	v, _, err := k.GetIntegerValue("AppsUseLightTheme")
+	if err != nil {
+		return
+	}
+	SetLightTaskbar(v != 0)
 }
 
 // runKeyAutostart toggles HKCU\...\CurrentVersion\Run for the tray exe.

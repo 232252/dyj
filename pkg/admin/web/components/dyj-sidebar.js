@@ -5,12 +5,12 @@ import './dyj-status-badge.js';
 import { t } from '../i18n/index.js';
 
 const NAV = [
-  ['status', 'check', 'nav_status'],
+  ['status', 'activity', 'nav_status'],
   ['printer', 'printer', 'nav_printer'],
   ['network', 'network', 'nav_network'],
-  ['jobs', 'print', 'nav_jobs'],
-  ['logs', 'log', 'nav_logs'],
-  ['wizard', 'wizard', 'nav_wizard'],
+  ['jobs', 'files', 'nav_jobs'],
+  ['logs', 'file-text', 'nav_logs'],
+  ['wizard', 'compass', 'nav_wizard'],
 ];
 
 export function statusBadgeState(s) {
@@ -48,7 +48,7 @@ class DyjSidebar extends HTMLElement {
     color: var(--dyj-text-dim); }
 </style>
 <div class="wrap">
-  <div class="brand"><dyj-icon name="printer"></dyj-icon><b>dyj</b><span>${t('app_subtitle')}</span></div>
+  <div class="brand"><dyj-icon name="dyj"></dyj-icon><b>dyj</b><span>${t('app_subtitle')}</span></div>
   <div class="badge"><dyj-status-badge id="badge" state="unknown"></dyj-status-badge></div>
   <nav>${NAV.map(([r, ic, k]) =>
     `<a href="#/${r}" data-route="${r}"><dyj-icon name="${ic}"></dyj-icon><span>${t(k)}</span></a>`).join('')}</nav>

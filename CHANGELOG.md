@@ -3,6 +3,42 @@
 All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/); versioning: semver.
 
+## [Unreleased]
+
+### Added
+- **Brand identity** (docs/research/11): self-drawn vector mark (printer +
+  broadcast waves, `assets/brand/dyj-mark.svg`) and full-color app tile
+  (`assets/brand/dyj-logo.svg`); favicon (SVG + 4 KB multi-size ICO) served
+  from the embedded admin UI. `dyj-icon` now vendors 23 icons from Lucide
+  v1.48.0 (ISC) with a provenance header — nav semantics fixed (status →
+  activity, network → topology graph, jobs → files).
+- **Branded Windows tray icon**: the 32×32 tray icon is now the blue brand
+  tile with a white printer glyph plus a status badge (green/gray/red),
+  rasterized at runtime from signed-distance fields — still zero asset
+  files, with a theme-aware badge rim for light/dark taskbars
+  (`AppsUseLightTheme` polled by the Windows glue).
+- **Windows exe resources**: dyj.exe / dyj-tray.exe embed a multi-size ICO
+  (16–256), version info (product name/version/copyright) and an app
+  manifest via committed `rsrc_windows_*.syso` (go-winres) — Explorer, the
+  taskbar and the uninstaller no longer show the default Go icon.
+  `scripts/build-all.sh` restamps resources when go-winres + VERSION are
+  available; the release workflow installs go-winres.
+- **Linux desktop icon**: dyj hicolor icons (16–256 + scalable SVG) ship in
+  the deb/rpm; the `.desktop` entry uses `Icon=dyj` instead of the generic
+  theme printer icon. `scripts/genicons` regenerates every raster
+  derivative from the 512 px master render.
+
+### Fixed
+- **Admin UI white-screen at `/admin` without a trailing slash**: the
+  handler served index.html in place, so browsers resolved `app.js` against
+  the server root and rejected its text/plain MIME; `/admin` now 301s to
+  `/admin/` (regression test included).
+- **Wizard and diagnostic components never rendered**: `dyj-stepper` and
+  `dyj-diagnostic` used `this.shadowRoot` without attaching a shadow root,
+  so the first `steps=` / `check=` assignment threw and left both empty;
+  both attach in the constructor now (caught by live UI verification while
+  shipping the icon work).
+
 ## [0.2.0] — 2026-09-29
 
 Complete client + server delivery: human-facing UI, real-printer support on

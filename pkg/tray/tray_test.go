@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"image"
 	"image/png"
 	"net/http"
 	"net/http/httptest"
@@ -130,9 +131,51 @@ func TestIconBytesIsICOWithPNG(t *testing.T) {
 }
 
 func TestIconColorsDiffer(t *testing.T) {
-	run := dotPNG(statusRGB[StateRunning])
-	down := dotPNG(statusRGB[StateDown])
+	run := renderIcon(StateRunning, false)
+	down := renderIcon(StateDown, false)
 	if bytes.Equal(run, down) {
 		t.Fatal("running and down icons are identical")
+	}
+}
+
+func TestThemeFlipsInk(t *testing.T) {
+	if bytes.Equal(renderIcon(StateRunning, false), renderIcon(StateRunning, true)) {
+		t.Fatal("dark and light taskbar icons are identical")
+	}
+}
+
+// decodeIconPNG unpacks the PNG payload from renderIcon output.
+func decodeIconPNG(t *testing.T, ico []byte) image.Image {
+	t.Helper()
+	img, err := png.Decode(bytes.NewReader(ico[22:]))
+	if err != nil {
+		t.Fatalf("payload does not decode: %v", err)
+	}
+	return img
+}
+
+func TestBadgeCarriesStateColor(t *testing.T) {
+	// Badge center pixel must be exactly the state color at full opacity.
+	for st, want := range statusRGB {
+		img := decodeIconPNG(t, renderIcon(st, false))
+		r, g, b, a := img.At(25, 25).RGBA()
+		if a != 0xffff || uint8(r>>8) != want[0] || uint8(g>>8) != want[1] || uint8(b>>8) != want[2] {
+			t.Fatalf("state %v: badge pixel = (%d,%d,%d,%d), want %v opaque", st, r>>8, g>>8, b>>8, a, want)
+		}
+	}
+}
+
+func TestGlyphIsDrawn(t *testing.T) {
+	// A pixel on the printer body's top edge must carry glyph ink (not
+	// transparent), so the icon is a brand mark, not a bare dot.
+	img := decodeIconPNG(t, renderIcon(StateRunning, false))
+	ink := 0
+	for x := 8 * 4 / 3; x < 22*4/3; x++ {
+		if _, _, _, a := img.At(x, 12).RGBA(); a != 0 {
+			ink++
+		}
+	}
+	if ink == 0 {
+		t.Fatal("no opaque pixels along the printer body's top edge")
 	}
 }

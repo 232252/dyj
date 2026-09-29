@@ -37,7 +37,7 @@ class DyjPageJobs extends HTMLElement {
   <dyj-button id="refresh" variant="secondary">${t('btn_refresh')}</dyj-button>
 </div>
 <dyj-job-table id="table" hidden></dyj-job-table>
-<dyj-empty-state id="empty" icon="print" text="${t('empty_jobs_title')}" hidden>
+<dyj-empty-state id="empty" icon="files" text="${t('empty_jobs_title')}" hidden>
   <dyj-button slot="action" variant="secondary">${t('btn_refresh')}</dyj-button>
 </dyj-empty-state>`;
     this.querySelectorAll('.seg dyj-button').forEach((b) => {

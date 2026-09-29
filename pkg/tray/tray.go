@@ -18,6 +18,7 @@ import (
 	"io"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -163,44 +164,45 @@ func (c *Controller) SetPaused(ctx context.Context, paused bool) error {
 }
 
 // ---------------------------------------------------------------------------
-// Icons: deterministic generated 32×32 status dots (no asset files).
-// Windows SetIcon receives an ICO container holding one PNG payload.
+// Icons: the brand mark rasterized at 32×32 (no asset files) with a
+// status badge — green / gray / red, paired with tooltip text so color
+// is never the only signal. Windows SetIcon receives an ICO container
+// holding one PNG payload.
 // ---------------------------------------------------------------------------
 
-// statusRGB is the dot color per state: green / gray / red — paired
-// with text in the tooltip so color is never the only signal.
+// statusRGB is the badge color per state.
 var statusRGB = map[State][3]byte{
 	StateRunning: {0x22, 0xC5, 0x5E},
 	StatePaused:  {0x9C, 0xA3, 0xAF},
 	StateDown:    {0xEF, 0x44, 0x44},
 }
 
-// IconBytes renders the 32×32 status dot for s as ICO bytes.
+// The tray icon is the brand tile: blue rounded square + white printer
+// glyph, so ink is theme-independent. Only the badge rim tracks the
+// taskbar theme — it fakes a surface-colored cutout around the badge.
+var (
+	glyphInk   = [3]byte{0xFF, 0xFF, 0xFF}
+	taskbarRim = map[bool][3]byte{
+		false: {0x11, 0x18, 0x27}, // dark taskbar
+		true:  {0xF3, 0xF4, 0xF6}, // light taskbar
+	}
+)
+
+// taskbarLight tracks the shell theme; the Windows glue flips it via
+// SetLightTaskbar when it reads AppsUseLightTheme.
+var taskbarLight atomic.Bool
+
+// SetLightTaskbar switches the badge rim for light-mode taskbars.
+func SetLightTaskbar(light bool) { taskbarLight.Store(light) }
+
+// IconBytes renders the 32×32 tray icon for s as ICO bytes.
 func IconBytes(s State) []byte {
-	png := dotPNG(statusRGB[s])
-	return icoWrap(png)
+	return renderIcon(s, taskbarLight.Load())
 }
 
-// dotPNG draws an anti-aliased-ish filled circle on transparent bg.
-func dotPNG(rgb [3]byte) []byte {
-	const size = 32
-	const cx, cy, r = 15.5, 15.5, 12.0
-	img := imageNewRGBA(size, size)
-	for y := 0; y < size; y++ {
-		for x := 0; x < size; x++ {
-			dx, dy := float64(x)-cx, float64(y)-cy
-			d := dx*dx + dy*dy
-			switch {
-			case d <= (r-1.2)*(r-1.2):
-				img.set(x, y, rgb[0], rgb[1], rgb[2], 255)
-			case d <= r*r: // 1px soft edge
-				img.set(x, y, rgb[0], rgb[1], rgb[2], 160)
-			}
-		}
-	}
-	var buf bytes.Buffer
-	_ = pngEncode(&buf, img)
-	return buf.Bytes()
+func renderIcon(s State, light bool) []byte {
+	png := render(glyphInk, taskbarRim[light], statusRGB[s])
+	return icoWrap(png)
 }
 
 // icoWrap embeds one PNG into the minimal ICO container Windows accepts.

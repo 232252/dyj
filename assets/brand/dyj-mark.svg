@@ -1,0 +1,12 @@
+<!-- dyj brand mark: printer + broadcast waves (LAN driverless sharing).
+     Original artwork, drawn on the 24px grid with the same conventions
+     as the vendored Lucide set (stroke 2, round caps/joins, currentColor)
+     so it can also ride along inside dyj-icon.js. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <!-- waves: two broadcast arcs rising from the printer body -->
+  <path d="M5.6 6.75a8.5 8.5 0 0 1 12.8 0"/>
+  <path d="M8.5 6.75a4.95 4.95 0 0 1 7 0"/>
+  <!-- printer body + output tray -->
+  <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
+  <rect x="6" y="14" width="12" height="8" rx="1"/>
+</svg>
