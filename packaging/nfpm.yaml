@@ -1,0 +1,54 @@
+# nfpm configuration: one file builds deb + rpm (+ apk/arch if wanted)
+# for any TARGETARCH. See packaging/linux/ for the unit, postinst and
+# avahi/desktop payloads shipped inside.
+#
+#   TARGETARCH=amd64 nfpm package -f packaging/nfpm.yaml -p deb -t dist/
+#   TARGETARCH=arm64 nfpm package -f packaging/nfpm.yaml -p rpm -t dist/
+#
+# Policy notes (docs/research/10 §4):
+#   - the unit ships in /usr/lib/systemd/system (vendor slot), /etc is
+#     never touched by the package;
+#   - enabling goes through preset semantics in postinstall
+#     (deb-systemd-helper / systemctl preset), never a bare
+#     `systemctl enable`;
+#   - the package NEVER modifies the running firewall (Debian/Fedora
+#     policy); the admin page's self-check carries the per-distro
+#     commands instead.
+name: dyj
+arch: ${TARGETARCH}
+platform: linux
+version: ${VERSION}
+section: net
+priority: optional
+maintainer: dyj maintainers <dyj@example.invalid>
+description: |
+  LAN printer sharing, driverless.
+  Shares locally attached printers over the network via IPP Everywhere
+  + mDNS so Windows, macOS and Linux clients print without installing
+  any driver.
+homepage: https://github.com/sq199/dyj
+license: Apache-2.0
+epoch: 1
+
+contents:
+  - src: dist/dyj-linux-${TARGETARCH}
+    dst: /usr/bin/dyj
+  - src: packaging/linux/dyj.service
+    dst: /usr/lib/systemd/system/dyj.service
+  - src: packaging/linux/dyj.avahi-service
+    dst: /etc/avahi/services/dyj.service
+    type: config|noreplace
+  - src: packaging/linux/dyj-admin.desktop
+    dst: /usr/share/applications/dyj-admin.desktop
+
+overrides:
+  deb:
+    scripts:
+      postinstall: packaging/linux/postinstall.sh
+      preremove: packaging/linux/preremove.sh
+      postremove: packaging/linux/postremove.sh
+  rpm:
+    scripts:
+      postinstall: packaging/linux/postinstall.sh
+      preremove: packaging/linux/preremove.sh
+      postremove: packaging/linux/postremove.sh

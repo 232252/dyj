@@ -1,0 +1,24 @@
+<?xml version="1.0" standalone='no'?>
+<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+<!-- dyj shares this printer via avahi when present: the daemon then
+     does the advertising and dyj does not need to listen on UDP 5353
+     itself (docs/research/10 §4.3). The port must match the dyj serve
+     -port. -->
+<service-group>
+  <name replace-wildcards="yes">dyj on %h</name>
+  <service>
+    <type>_ipp._tcp</type>
+    <subtype>_print._sub._ipp._tcp</subtype>
+    <port>6631</port>
+    <txt-record>rp=ipp/print</txt-record>
+    <txt-record>txtvers=1</txt-record>
+    <txt-record>qtotal=1</txt-record>
+    <txt-record>pdl=image/pwg-raster,image/jpeg,image/png,text/plain</txt-record>
+    <txt-record>adminurl=http://%h.local:6631/admin</txt-record>
+  </service>
+  <service>
+    <type>_http._tcp</type>
+    <port>6631</port>
+    <txt-record>path=/admin</txt-record>
+  </service>
+</service-group>

@@ -1,0 +1,114 @@
+# dyj release pipeline.
+#
+# Three package lines from one build matrix (docs/research/10 §6 M4):
+#   - linux: goreleaser-style cross build (scripts/build-all.sh) + nfpm
+#     deb/rpm for amd64+arm64 (nfpm needs no target environment);
+#   - windows: ISCC (preinstalled on windows runners) builds
+#     dyj-setup-x64.exe from the dist/ artifacts;
+#   - macos/homebrew: the tarballs land on the GitHub Release and
+#     packaging/macos/dyj.rb gets its sha256 marks refreshed.
+#
+# Signing (fill when certificates exist; none of the steps depend on it):
+#   - Windows: Azure Artifact Signing action (secrets: AZURE_SIGNING_*),
+#     sign dyj.exe / dyj-tray.exe / dyj-setup-x64.exe with a timestamp.
+#   - Linux: GPG-sign the .deb/.rpm (secrets: GPG_KEY) and publish a
+#     signed apt/yum repo later.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "stable"
+      - name: Build all platform binaries
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}" ./scripts/build-all.sh
+          # tarballs the Homebrew formula downloads (bare binary inside)
+          for f in dyj-linux-amd64 dyj-linux-arm64 dyj-darwin-amd64 dyj-darwin-arm64; do
+            cp "dist/$f" "$f"
+            tar -czf "dist/$f.tar.gz" "$f"
+            rm "$f"
+          done
+      - name: Install nfpm
+        run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
+      - name: Build deb/rpm (amd64 + arm64)
+        env:
+          VERSION: ""
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}" bash scripts/package-linux.sh
+      - name: Upload linux/mac artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dyj-unix
+          path: |
+            dist/dyj-*
+            dist/packages/*
+  windows-installer:
+    runs-on: windows-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dyj-unix
+          path: dist
+      - name: Build Inno Setup installer
+        shell: pwsh
+        run: |
+          $env:DYJ_VERSION = "${{ github.ref_name }}" -replace '^v',''
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" packaging\windows\dyj.iss
+      # Signing goes here once credentials exist:
+      # - uses: azure/trusted-signing-action@v0
+      #   with:
+      #     azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+      #     azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+      #     azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+      #     endpoint: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
+      #     code-signing-account-name: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
+      #     certificate-profile-name: ${{ secrets.AZURE_SIGNING_PROFILE }}
+      #     files-folder: ${{ github.workspace }}\dist
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: dyj-windows-installer
+          path: dist/dyj-setup-*.exe
+
+  publish:
+    runs-on: ubuntu-latest
+    needs: [build, windows-installer]
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dyj-unix
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: dyj-windows-installer
+          path: dist
+      - name: Attach everything to the GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/dyj-*
+            dist/packages/*
+          generate_release_notes: true
+      - name: Refresh Homebrew formula sha256 marks
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          # CI helper: print the sha256s the formula marks need; the tap
+          # update itself is a one-file commit (packaging/macos/dyj.rb).
+          for f in dyj-darwin-arm64 dyj-darwin-amd64 dyj-linux-arm64 dyj-linux-amd64; do
+            echo "$f $(sha256sum dist/$f.tar.gz | cut -d' ' -f1)"
+          done

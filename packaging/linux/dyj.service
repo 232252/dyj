@@ -1,0 +1,36 @@
+# dyj LAN printer sharing — packaged unit (vendor slot:
+# /usr/lib/systemd/system). Local overrides belong in
+# /etc/systemd/system/dyj.service.d/*.conf ("systemctl edit dyj").
+#
+# Hardening: dyj binds only high ports (6631/5353 — no
+# CAP_NET_BIND_SERVICE needed) and writes only its StateDirectory, so
+# it runs under a DynamicUser with an empty capability bounding set.
+# Custom -spool/-out paths need a drop-in ReadWritePaths= override.
+
+[Unit]
+Description=dyj LAN printer sharing (IPP Everywhere + mDNS)
+Documentation=https://github.com/sq199/dyj
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+ExecStart=/usr/bin/dyj service run
+Restart=on-failure
+RestartSec=5
+DynamicUser=yes
+StateDirectory=dyj
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+SystemCallFilter=@system-service
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target

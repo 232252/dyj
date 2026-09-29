@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- dyj LaunchDaemon template (manual/brew-outside installs).
+     Install with:
+       sudo cp org.dyj.printer.plist /Library/LaunchDaemons/
+       sudo chown root:wheel /Library/LaunchDaemons/org.dyj.printer.plist
+       sudo chmod 644 /Library/LaunchDaemons/org.dyj.printer.plist
+       sudo launchctl bootstrap system /Library/LaunchDaemons/org.dyj.printer.plist
+     launchd REFUSES plists that are not root:wheel 0644 ("Dubious
+     ownership/permissions") — keep those three commands. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>org.dyj.printer</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/bin/dyj</string>
+    <string>service</string>
+    <string>run</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>/var/log/dyj.log</string>
+  <key>StandardErrorPath</key><string>/var/log/dyj.log</string>
+</dict>
+</plist>
