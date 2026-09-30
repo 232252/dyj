@@ -38,6 +38,17 @@ func listenMulticast(ifi *net.Interface, ip net.IP) (*ifaceConn, error) {
 					serr = fmt.Errorf("IP_MULTICAST_LOOP: %w", err)
 					return
 				}
+				// Pin multicast egress to this interface: without
+				// IP_MULTICAST_IF every per-interface socket sends through
+				// the default route's NIC, so on a multi-homed host LAN
+				// peers never hear the announcements.
+				if ip4 := ip.To4(); ip4 != nil {
+					mif := &windows.IPMreq{Interface: [4]byte{ip4[0], ip4[1], ip4[2], ip4[3]}}
+					if err := windows.SetsockoptIPMreq(h, windows.IPPROTO_IP, windows.IP_MULTICAST_IF, mif); err != nil {
+						serr = fmt.Errorf("IP_MULTICAST_IF(%s): %w", ip4, err)
+						return
+					}
+				}
 				if ip4 := ip.To4(); ip4 != nil {
 					mreq := &windows.IPMreq{Multiaddr: [4]byte{224, 0, 0, 251}}
 					copy(mreq.Interface[:], ip4)
@@ -52,7 +63,16 @@ func listenMulticast(ifi *net.Interface, ip net.IP) (*ifaceConn, error) {
 			return serr
 		},
 	}
-	pc, err := lc.ListenPacket(context.Background(), "udp4", "0.0.0.0:5353")
+	// Bind to the interface address, not the wildcard: on Windows a
+	// wildcard-bound socket ignores IP_MULTICAST_IF for egress and every
+	// announcement leaves through the default route's NIC (measured:
+	// LAN peers receive nothing from a multi-homed host). A concrete
+	// local address pins the interface for both send and receive.
+	bind := "0.0.0.0:5353"
+	if ip4 := ip.To4(); ip4 != nil {
+		bind = ip4.String() + ":5353"
+	}
+	pc, err := lc.ListenPacket(context.Background(), "udp4", bind)
 	if err != nil {
 		return nil, err
 	}
