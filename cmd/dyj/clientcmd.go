@@ -157,7 +157,7 @@ func cmdStatus(args []string) error {
 	fmt.Printf("accepting: %s\n", boolName(accepting, true))
 	fmt.Printf("make:      %s\n", get("printer-make-and-model"))
 	fmt.Printf("uuid:      %s\n", get("printer-uuid"))
-	fmt.Printf("formats:   %s\n", get("document-format-supported"))
+	fmt.Printf("formats:   %s\n", strings.Join(attributes.GroupStrings(p, "document-format-supported"), ","))
 	fmt.Printf("media:     %s\n", get("media-supported"))
 	fmt.Printf("queued:    %s\n", get("queued-job-count"))
 	return nil
