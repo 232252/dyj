@@ -1,9 +1,7 @@
 package main
 
 import (
-	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 
 	"github.com/sq199/dyj/pkg/service"
@@ -11,7 +9,9 @@ import (
 
 // cmdService manages the OS service integration.
 //
-//	install  — parse serve flags, persist them, register the service
+//	install  — persist the serve flags (none = bootstrap role: the node
+//	           comes up unconfigured and the wizard completes it), then
+//	           register the service
 //	uninstall/start/stop — operate the registered service
 //	run      — the entry the SCM/systemd/launchd invokes (loads persisted
 //	           options); exposed for debugging
@@ -31,17 +31,17 @@ func cmdService(args []string) error {
 		if err != nil {
 			return err
 		}
-		raw, err := json.Marshal(o)
+		raw, err := marshalOptions(o)
 		if err != nil {
 			return err
 		}
-		if err := service.SaveOptions(string(raw)); err != nil {
+		if err := service.SaveOptions(raw); err != nil {
 			return err
 		}
 		if err := service.Install(); err != nil {
 			return err
 		}
-		fmt.Printf("dyj: service installed (options: %s)\n", raw)
+		fmt.Printf("dyj: service installed (role %q, options: %s)\n", o.Role, raw)
 		return nil
 	case "uninstall":
 		return service.Uninstall()
@@ -54,28 +54,4 @@ func cmdService(args []string) error {
 	default:
 		return fmt.Errorf("unknown service action %q", args[0])
 	}
-}
-
-// parseServeOptions reuses the serve flag set without running.
-func parseServeOptions(args []string) (serveOptions, error) {
-	var o serveOptions
-	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
-	fs.IntVar(&o.Port, "port", 6631, "IPP port")
-	fs.IntVar(&o.TLSPort, "tls-port", 0, "ipps port")
-	fs.StringVar(&o.Name, "name", "", "printer name")
-	fs.StringVar(&o.Printer, "printer", "", "Windows print queue")
-	fs.StringVar(&o.Backend, "backend", "", "backend")
-	fs.StringVar(&o.Out, "out", "", "file backend output dir")
-	fs.StringVar(&o.Spool, "spool", "", "spool dir")
-	fs.StringVar(&o.Ifaces, "iface", "", "interfaces")
-	fs.BoolVar(&o.NoMDNS, "no-mdns", false, "no mDNS")
-	fs.BoolVar(&o.Verbose, "v", false, "verbose")
-	fs.StringVar(&o.Hostname, "hostname", "", "mDNS host name")
-	if err := fs.Parse(args); err != nil {
-		return o, err
-	}
-	if o.Name == "" {
-		o.Name = "dyj on " + hostnameOr("localhost")
-	}
-	return o, nil
 }

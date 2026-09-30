@@ -59,6 +59,20 @@ type Status struct {
 	MDNS        bool     `json:"mdns"`
 	AdminURL    string   `json:"admin_url"`
 	Formats     []string `json:"formats,omitempty"`
+
+	// v0.3 role model + multi-printer view (research/13 §3.1).
+	Role           string          `json:"role,omitempty"`
+	Printers       []PrinterStatus `json:"printers,omitempty"`
+	PairingEnabled bool            `json:"pairing_enabled"`
+}
+
+// PrinterStatus is one shared printer inside Status.
+type PrinterStatus struct {
+	Key       string `json:"key"`
+	Name      string `json:"name"`
+	Backend   string `json:"backend"`
+	Accepting bool   `json:"accepting"`
+	Queued    int32  `json:"queued"`
 }
 
 // Options configures the admin handler.
@@ -81,6 +95,14 @@ type Options struct {
 	Web fs.FS
 	// Diagnostics runs the doctor checks (nil omits the endpoint).
 	Diagnostics func(any) any
+	// Extra mounts additional API endpoints under /admin/api/<name>,
+	// behind the SAME loopback/token gate as the built-in write surface.
+	// Keys are the endpoint path after /admin/api/ (e.g. "local-printers",
+	// "devices", "queue/install"); the handler dispatches on method itself.
+	Extra map[string]http.Handler
+	// LiveReload marks the wiring as applying config changes in-process;
+	// the config PUT answer reports restart_required accordingly.
+	LiveReload bool
 }
 
 // Handler implements http.Handler for the /admin subtree.
@@ -184,6 +206,13 @@ func (h *Handler) serveAPI(w http.ResponseWriter, r *http.Request, ep string) {
 			writeJSON(w, http.StatusUnauthorized, apiError{"token required for this endpoint from a non-local client"})
 			return
 		}
+	}
+
+	// Wiring-provided endpoints (wizard, pairing, receiver APIs) sit behind
+	// the same gate as the built-ins above.
+	if hd, ok := h.opts.Extra[ep]; ok {
+		hd.ServeHTTP(w, r)
+		return
 	}
 
 	switch r.Method {
@@ -298,7 +327,7 @@ func (h *Handler) handleConfigGet(w http.ResponseWriter) {
 		"config": h.opts.ConfigGet(),
 		// Config changes take effect when the service restarts; the UI
 		// shows a "重启服务生效" hint instead of pretending live-apply.
-		"restart_required_on_change": true,
+		"restart_required_on_change": !h.opts.LiveReload,
 	})
 }
 
@@ -316,7 +345,7 @@ func (h *Handler) handleConfigPut(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, apiError{err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"saved": true, "restart_required": true})
+	writeJSON(w, http.StatusOK, map[string]any{"saved": true, "restart_required": !h.opts.LiveReload})
 }
 
 func (h *Handler) handleLogs(w http.ResponseWriter, r *http.Request) {

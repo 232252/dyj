@@ -1,15 +1,18 @@
-// Command dyj shares a printer over the LAN as a driverless IPP
-// Everywhere service, and prints to such services as a client.
+// Command dyj shares printers over the LAN as a driverless IPP Everywhere
+// service, and adds such services as ordinary system printers — one
+// binary, wizard-first (ADR-0010):
 //
-// One binary, two roles:
-//
-//	dyj serve                 run the print server (mDNS + IPP + backend)
-//	dyj browse                find _ipp._tcp printers on the LAN
-//	dyj status <uri>          query a printer's attributes
-//	dyj print <uri> <file>    submit a document (txt/jpg/png/pwg)
-//	dyj jobs <uri>            list the printer's job queue
-//	dyj cancel <uri> <id>     cancel a job
-//	dyj service ...           install/run as a system service
+//	dyj                      first run: role wizard in the browser;
+//	                        afterwards: run the configured role
+//	dyj open                 open the admin UI (desktop shortcut target)
+//	dyj serve   [flags]      expert: run the share side with flags
+//	dyj browse              find _ipp._tcp printers on the LAN
+//	dyj status <uri>         query a printer's attributes
+//	dyj print <uri> <file>   submit a document (txt/jpg/png/pdf/pwg)
+//	dyj jobs <uri>           list the printer's job queue
+//	dyj cancel <uri> <id>    cancel a job
+//	dyj service ...          install/run as a system service
+//	dyj doctor               diagnose this machine
 //
 // This binary is an assembly point only: it parses flags and wires
 // packages together. All protocol logic lives in pkg/.
@@ -20,19 +23,27 @@ import (
 	"os"
 )
 
-// dyjVersion is stamped into the admin API and diagnostics. Keep in
+// dyjVersion is stamped into the admin API and diagnostics. Keep
 // sync with the latest CHANGELOG entry.
-const dyjVersion = "0.2.0"
+const dyjVersion = "0.3.0"
 
 func main() {
 	if len(os.Args) < 2 {
-		usage()
-		os.Exit(2)
+		// The foolproof path: no arguments = guided launcher.
+		if err := cmdLaunch(); err != nil {
+			fmt.Fprintf(os.Stderr, "dyj: %v\n", err)
+			os.Exit(1)
+		}
+		return
 	}
 	var err error
 	switch os.Args[1] {
 	case "serve":
 		err = cmdServe(os.Args[2:])
+	case "open":
+		err = cmdOpen(os.Args[2:])
+	case "setup-helper": // internal, elevated on Windows
+		err = cmdSetupHelper(os.Args[2:])
 	case "browse":
 		err = cmdBrowse(os.Args[2:])
 	case "status":
@@ -68,19 +79,29 @@ func usage() {
 	fmt.Print(`dyj — LAN printer sharing, driverless (IPP Everywhere + mDNS)
 
 Usage:
-  dyj serve    [flags]                    run the print server
-  dyj browse   [--timeout 5s]             find printers via mDNS
-  dyj status   <uri>                      query printer attributes
-  dyj print    [flags] <uri> <file>       submit a document
-  dyj jobs     <uri>                      list jobs
-  dyj cancel   <uri> <job-id>             cancel a job
+  dyj                                    guided launcher (wizard on first run)
+  dyj open                               open the admin UI in the browser
+  dyj serve    [flags]                   run the share side (expert path)
+  dyj browse   [--timeout 5s]            find printers via mDNS
+  dyj status   <uri>                     query printer attributes
+  dyj print    [flags] <uri> <file>      submit a document
+  dyj jobs     <uri>                     list jobs
+  dyj cancel   <uri> <job-id>            cancel a job
   dyj service  install|uninstall|start|stop|run   manage the system service
-  dyj doctor   [flags]                    diagnose this machine (firewall/port/mDNS/backend)
-  dyj tray     [-port N]                  run the system tray (Windows)
-  dyj list-interfaces                     show multicast-capable interfaces
+  dyj doctor   [flags]                   diagnose this machine
+  dyj tray     [-port N]                 run the system tray (Windows)
+  dyj list-interfaces                    show multicast-capable interfaces
 
-Admin UI: start the server and open http://127.0.0.1:<port>/admin —
-configure, watch jobs and logs from any device on the LAN.
+First run opens a wizard with two choices:
+  share local printers  — auto-enumerate this machine's queues and share
+                          them; a 4-digit pairing code guards the LAN side
+  add network printer   — scan the LAN, pair with the code, and the printer
+                          is installed as a normal system queue (WPS, Word,
+                          notepad print to it directly; dyj stays out of
+                          the path)
+
+Admin UI: http://127.0.0.1:<port>/admin — configure, watch jobs and logs,
+manage paired devices from any device on the LAN.
 
 Server flags (serve):
   -name NAME        printer name shown to clients (default "dyj on <host>")
@@ -90,7 +111,7 @@ Server flags (serve):
                     (default: wingdi on Windows; cups when CUPS queues
                     exist, else file elsewhere; file requires -out DIR)
   -out DIR          output dir for the file backend (default ./dyj-out)
-  -spool DIR        spool directory (default per-OS user data dir)
+  -spool DIR        state dir (default per-OS; also holds logs and tokens)
   -tls-port N       also serve ipps:// on this port (self-signed cert)
   -iface LIST       comma-separated interface names/addresses to advertise
   -no-mdns          do not advertise via mDNS
@@ -106,5 +127,8 @@ Client flags (print):
 Client file types: .txt .jpg .png .pdf .pwg
 (.pdf is sent as application/pdf; the server must advertise it —
 check with 'dyj status <uri>'.)
+
+Data-plane auth (v0.3): loopback is exempt; LAN peers must pair once with
+the 4-digit code shown on the share machine's admin page / tray.
 `)
 }

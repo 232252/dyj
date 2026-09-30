@@ -43,6 +43,10 @@ type Options struct {
 	Backend driver.Interface
 	// KeepCompleted bounds the finished-job history (default 20).
 	KeepCompleted int
+	// IDBase lifts the job-id counter so several per-printer spoolers can
+	// share one admin job list without colliding (printer i gets
+	// i*1_000_000). 0 keeps the classic 1..N sequence.
+	IDBase int32
 	// Logger, optional.
 	Logger *log.Logger
 }
@@ -131,6 +135,9 @@ func New(opts Options) (*Spooler, error) {
 	}
 	if err := s.recover(); err != nil {
 		return nil, err
+	}
+	if s.nextID < opts.IDBase {
+		s.nextID = opts.IDBase
 	}
 	go s.worker()
 	return s, nil

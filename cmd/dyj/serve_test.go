@@ -6,7 +6,7 @@ func TestASCIIHostName(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{"dyj", "dyj"},
 		{"My PC-01", "my-pc-01"},
-		{"生命", "dyj"},          // non-ASCII: every byte maps away, fallback wins
+		{"生命", "dyj"},                  // non-ASCII: every byte maps away, fallback wins
 		{"LIFE-生命-X", "life--------x"}, // one dash per non-ASCII byte, kept inside
 		{"DESK.TOP", "desk-top"},
 		{"", "dyj"},

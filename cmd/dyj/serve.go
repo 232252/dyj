@@ -10,11 +10,8 @@ import (
 	"crypto/x509/pkix"
 	"encoding/json"
 	"encoding/pem"
-	"errors"
 	"flag"
 	"fmt"
-	"io"
-	"log"
 	"math/big"
 	"net"
 	"os"
@@ -25,25 +22,29 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/sq199/dyj/pkg/admin"
 	"github.com/sq199/dyj/pkg/attributes"
+	"github.com/sq199/dyj/pkg/discovery"
 	"github.com/sq199/dyj/pkg/driver"
 	"github.com/sq199/dyj/pkg/driver/cups"
-	"github.com/sq199/dyj/pkg/discovery"
-	"github.com/sq199/dyj/pkg/ipp"
-	"github.com/sq199/dyj/pkg/service"
-	"github.com/sq199/dyj/pkg/spooler"
+	"github.com/sq199/dyj/pkg/localprint"
 )
 
-// serveOptions carries everything `dyj serve` needs. It is a plain
-// struct so the service runner can load it from disk without parsing
-// flags twice.
+// serveOptions is the persisted node configuration (service.json). v0.3
+// adds the role model and the printer list (research/13 §4.1); the legacy
+// single `printer`/`backend` pair migrates into `printers` on load.
 type serveOptions struct {
-	Name     string `json:"name"`
-	Port     int    `json:"port"`
-	TLSPort  int    `json:"tls_port,omitempty"`
-	Printer  string `json:"printer,omitempty"`
-	Backend  string `json:"backend,omitempty"`
+	// Role: "" (bootstrap / not configured yet), share, use, both.
+	Role     string        `json:"role,omitempty"`
+	Name     string        `json:"name"`
+	Port     int           `json:"port"`
+	TLSPort  int           `json:"tls_port,omitempty"`
+	Printers []printerSpec `json:"printers,omitempty"`
+
+	// Legacy v0.2 single-printer fields; kept so old service.json files
+	// keep loading (normalizeServeOptions migrates them).
+	Printer string `json:"printer,omitempty"`
+	Backend string `json:"backend,omitempty"`
+
 	Out      string `json:"out,omitempty"`
 	Spool    string `json:"spool,omitempty"`
 	Ifaces   string `json:"ifaces,omitempty"`
@@ -52,285 +53,156 @@ type serveOptions struct {
 	Hostname string `json:"hostname,omitempty"`
 }
 
+// printerSpec is one shared printer.
+type printerSpec struct {
+	// Key is the URI slug (/ipp/print/<key>); "" on the single legacy
+	// printer keeps the classic un-keyed path.
+	Key     string `json:"key,omitempty"`
+	Name    string `json:"name"`
+	Queue   string `json:"queue,omitempty"`
+	Backend string `json:"backend,omitempty"`
+}
+
+// Roles.
+const (
+	roleShare = "share"
+	roleUse   = "use"
+	roleBoth  = "both"
+)
+
+func validRole(r string) bool {
+	return r == "" || r == roleShare || r == roleUse || r == roleBoth
+}
+
+func sharesRole(r string) bool { return r == roleShare || r == roleBoth }
+
+// normalizeServeOptions fills defaults and migrates the legacy single
+// printer into the printers list. It is pure (no I/O) so both the flag
+// path, the service path and the admin PUT path share one truth.
+func normalizeServeOptions(o serveOptions) serveOptions {
+	if o.Port < 1 || o.Port > 65535 {
+		o.Port = 6631
+	}
+	if o.TLSPort < 0 || o.TLSPort > 65535 || o.TLSPort == o.Port {
+		o.TLSPort = 0
+	}
+	if o.Name == "" {
+		o.Name = "dyj on " + hostnameOr("localhost")
+	}
+	if !validRole(o.Role) {
+		o.Role = ""
+	}
+	// v0.2 migration: printer+backend → printers[0]. A queue-less file or
+	// null backend (e2e, headless demo) also synthesizes one printer named
+	// after the service.
+	if len(o.Printers) == 0 && (o.Printer != "" || o.Backend == "file" || o.Backend == "null") {
+		display := o.Printer
+		if display == "" {
+			display = o.Name
+		}
+		o.Printers = []printerSpec{{
+			Key:     localprint.Slug(display),
+			Name:    display,
+			Queue:   o.Printer,
+			Backend: o.Backend,
+		}}
+		o.Printer, o.Backend = "", ""
+	}
+	seen := map[string]int{}
+	for i := range o.Printers {
+		p := &o.Printers[i]
+		if p.Name == "" {
+			p.Name = p.Queue
+		}
+		if p.Name == "" {
+			p.Name = "printer-" + fmt.Sprint(i+1)
+		}
+		if p.Key == "" {
+			p.Key = localprint.Slug(p.Name)
+		}
+		// De-dup keys: second "epson" becomes "epson-2".
+		if n, dup := seen[p.Key]; dup {
+			p.Key = fmt.Sprintf("%s-%d", p.Key, n)
+			seen[p.Key] = n + 1
+		} else {
+			seen[p.Key] = 2
+		}
+	}
+	return o
+}
+
 func cmdServe(args []string) error {
+	o, err := parseServeOptions(args)
+	if err != nil {
+		return err
+	}
+	// Explicit serve = share intent (the expert path).
+	if o.Role == "" {
+		o.Role = roleShare
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return runNode(ctx, o, modeConsole)
+}
+
+// parseServeOptions is the serve flag set, shared with `service install`.
+func parseServeOptions(args []string) (serveOptions, error) {
 	var o serveOptions
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	fs.IntVar(&o.Port, "port", 6631, "IPP port (631 needs admin rights)")
 	fs.IntVar(&o.TLSPort, "tls-port", 0, "also serve ipps:// on this port")
 	fs.StringVar(&o.Name, "name", "", "printer name (default \"dyj on <host>\")")
-	fs.StringVar(&o.Printer, "printer", "", "Windows print queue to print through")
+	fs.StringVar(&o.Printer, "printer", "", "Windows/CUPS queue to print through")
 	fs.StringVar(&o.Backend, "backend", "", "wingdi | cups | file | null (default: platform pick)")
 	fs.StringVar(&o.Out, "out", "", "output dir for the file backend")
-	fs.StringVar(&o.Spool, "spool", "", "spool directory")
+	fs.StringVar(&o.Spool, "spool", "", "state/spool directory")
 	fs.StringVar(&o.Ifaces, "iface", "", "interfaces to advertise on")
 	fs.BoolVar(&o.NoMDNS, "no-mdns", false, "skip mDNS advertisement")
 	fs.BoolVar(&o.Verbose, "v", false, "verbose logging")
 	fs.StringVar(&o.Hostname, "hostname", "", "mDNS host name override")
 	if err := fs.Parse(args); err != nil {
-		return err
+		return o, err
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	return serve(ctx, o)
+	return normalizeServeOptions(o), nil
 }
 
-// serveFromJSON is the service entry: options arrive as the JSON
-// persisted by `dyj service install`.
-func serveFromJSON(ctx context.Context, raw string) error {
-	var o serveOptions
-	if err := json.Unmarshal([]byte(raw), &o); err != nil {
-		return fmt.Errorf("persisted service options are invalid: %w", err)
+// backendName resolves the backend for one printer spec.
+func backendNameFor(spec printerSpec, o serveOptions) string {
+	if spec.Backend != "" {
+		return spec.Backend
 	}
-	return serve(ctx, o)
+	if o.Backend != "" {
+		return o.Backend
+	}
+	if runtime.GOOS == "windows" {
+		return "wingdi"
+	}
+	if qs, err := cups.Queues(); err == nil && len(qs) > 0 {
+		return "cups"
+	}
+	return "file"
 }
 
-// serve assembles and runs the whole server. ctx cancellation is the
-// one stop signal for every entry point (console, SCM, systemd, launchd).
-func serve(ctx context.Context, o serveOptions) error {
-	// logRing feeds the admin UI's live log view; stderr stays the
-	// primary sink for console runs and journald/launchd capture.
-	logRing := admin.NewLogRing(500)
-	logger := log.New(io.MultiWriter(os.Stderr, logRing), "", log.LstdFlags)
-
-	if o.Name == "" {
-		o.Name = "dyj on " + hostnameOr("localhost")
-	}
-
-	ifaces, err := discovery.SelectInterfaces(splitList(o.Ifaces))
-	if err != nil {
-		return err
-	}
-	if len(ifaces) == 0 {
-		return errors.New("no candidate multicast interface; run `dyj list-interfaces`")
-	}
-	ips := discovery.InterfaceAddrs(ifaces)
-
-	// ---- state dir: spool + persisted UUID + TLS key ----
-	stateDir := o.Spool
-	if stateDir == "" {
-		stateDir = defaultStateDir()
-	}
-	if err := os.MkdirAll(stateDir, 0o755); err != nil {
-		return fmt.Errorf("creating state dir: %w", err)
-	}
-	uuid, err := loadOrCreateUUID(filepath.Join(stateDir, "uuid.txt"))
-	if err != nil {
-		return err
-	}
-
-	// ---- backend ----
-	// Default pick: wingdi on Windows; elsewhere a running CUPS with at
-	// least one queue is the USEFUL default (sharing a real printer is
-	// the product), falling back to the file backend on headless hosts.
-	backendName := o.Backend
-	if backendName == "" {
-		if runtime.GOOS == "windows" {
-			backendName = "wingdi"
-		} else if qs, err := cups.Queues(); err == nil && len(qs) > 0 {
-			backendName = "cups"
-			logger.Printf("dyj: no -backend given, using cups queue %q (lpstat -p)", qs[0].Name)
-		} else {
-			backendName = "file"
-		}
-	}
-	backend, err := buildBackend(backendName, o)
-	if err != nil {
-		return err
-	}
-
-	// ---- spooler ----
-	spool, err := spooler.New(spooler.Options{
-		Dir:     filepath.Join(stateDir, "spool"),
-		Backend: backend,
-		Logger:  logger,
-	})
-	if err != nil {
-		return err
-	}
-
-	// ---- printer profile ----
-	path := "/ipp/print"
-	printer := ipp.DefaultPrinter()
-	printer.Name = o.Name
-	printer.Port = o.Port
-	printer.UUID = "urn:uuid:" + uuid
-	printer.Info = "dyj shared printer (" + backendName + ")"
-	// Honest format declaration (ADR-0007): application/pdf joins the
-	// table ONLY when a rasterizer (poppler pdftoppm) exists on this
-	// machine; the mDNS pdl= promise stays in lockstep.
-	if driver.PDFAvailable() {
-		printer.DocumentFormats = append(attributes.DefaultFormats(), "application/pdf")
-	}
-	printer.URIs = nil
-	for _, ip := range ips {
-		printer.URIs = append(printer.URIs, fmt.Sprintf("ipp://%s:%d%s", ip, o.Port, path))
-	}
-	printer.URIs = append(printer.URIs, fmt.Sprintf("ipp://127.0.0.1:%d%s", o.Port, path))
-	if err := ipp.ValidatePrinter(printer); err != nil {
-		return err
-	}
-
-	// ---- admin UI (ADR-0008) ----
-	// Loopback requests have full access; LAN requests may read status
-	// and the job list, and must present the token for anything else.
-	token, err := admin.LoadOrCreateToken(filepath.Join(stateDir, "admin-token"))
-	if err != nil {
-		return err
-	}
-	adminHandler := admin.New(admin.Options{
-		StatusFn: func() admin.Status {
-			return admin.Status{
-				Version:     dyjVersion,
-				PrinterName: printer.Name,
-				PrinterInfo: printer.Info,
-				URIs:        printer.URIs,
-				Backend:     backend.Name(),
-				Port:        o.Port,
-				TLSPort:     o.TLSPort,
-				MDNS:        !o.NoMDNS,
-				AdminURL:    fmt.Sprintf("http://127.0.0.1:%d/admin", o.Port),
-				Formats:     printer.DocumentFormats,
-			}
-		},
-		ConfigGet: func() any { return o },
-		ConfigPut: func(raw []byte) error {
-			next, err := parseServeOptionsJSON(raw)
-			if err != nil {
-				return err
-			}
-			persisted, err := json.Marshal(next)
-			if err != nil {
-				return err
-			}
-			return service.SaveOptions(string(persisted))
-		},
-		Spool:       spool,
-		Logs:        logRing,
-		Token:       token,
-		Diagnostics: runDiagnostics(o),
-		Web:         admin.DefaultWeb(),
-	})
-	srv := ipp.NewServer(ipp.Options{Printer: printer, Sink: spool, Logger: logger, Admin: adminHandler})
-
-	// ---- listeners ----
-	hostName := o.Hostname
-	if hostName == "" {
-		hostName = discovery.DefaultHostName(o.Name)
-	}
-	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", o.Port))
-	if err != nil {
-		return fmt.Errorf("listen :%d: %w", o.Port, err)
-	}
-	errCh := make(chan error, 4)
-	go func() { errCh <- srv.Serve(ln) }()
-
-	if o.TLSPort > 0 {
-		if _, err := loadOrCreateTLSCert(stateDir, o.Name, hostName); err != nil {
-			return err
-		}
-		tln, err := net.Listen("tcp", fmt.Sprintf(":%d", o.TLSPort))
-		if err != nil {
-			return fmt.Errorf("listen tls :%d: %w", o.TLSPort, err)
-		}
-		go func() { errCh <- srv.ServeTLS(tln, certFile(stateDir), keyFile(stateDir)) }()
-		printer.URIs = append(printer.URIs, fmt.Sprintf("ipps://%s:%d%s", ips[0], o.TLSPort, path))
-	}
-
-	// ---- mDNS ----
-	var adv *discovery.Advertiser
-	if !o.NoMDNS {
-		adv, err = discovery.New(discovery.Config{
-			Instance: o.Name,
-			HostName: hostName,
-			Port:     o.Port,
-			IPs:      ips,
-			Path:     path,
-			Ifaces:   ifaces,
-			Logger:   logger,
-			TXT: discovery.BuildTXT(discovery.TXTParams{
-				Port:     o.Port,
-				Path:     path,
-				Type:     o.Name,
-				UUID:     uuid,
-				PDL:      pdlPromise(),
-				AdminURL: fmt.Sprintf("http://%s:%d/admin", ips[0], o.Port),
-				Color:    printer.ColorSupported,
-			}),
-		})
-		if err != nil {
-			return fmt.Errorf("mdns setup: %w", err)
-		}
-		if err := adv.Start(); err != nil {
-			return fmt.Errorf("mdns start: %w", err)
-		}
-		defer adv.Close()
-	}
-
-	// ---- report ----
-	fmt.Printf("dyj: backend        %s\n", backend.Name())
-	fmt.Printf("dyj: IPP endpoint   http://%s:%d%s\n", ips[0], o.Port, path)
-	if o.TLSPort > 0 {
-		fmt.Printf("dyj: IPPS endpoint  https://%s:%d%s (self-signed TLS)\n", ips[0], o.TLSPort, path)
-	}
-	fmt.Printf("dyj: admin UI       http://127.0.0.1:%d/admin\n", o.Port)
-	fmt.Printf("dyj: admin token    %s（本机免填；局域网管理需在管理页输入一次）\n", token)
-	for _, u := range printer.URIs {
-		fmt.Printf("dyj: printer URI    %s\n", u)
-	}
-	if adv != nil {
-		fmt.Printf("dyj: mDNS           %s / %s -> %s:%d\n",
-			adv.Instance(), adv.InstanceFQDN(), hostNameOr(o.Hostname, o.Name), o.Port)
-	}
-	fmt.Printf("dyj: spool          %s\n", stateDir)
-	fmt.Println("dyj: Windows 11 -> Settings -> Bluetooth & devices -> Printers & scanners ->")
-	fmt.Printf("     Add device -> Add manually -> Add a printer using an IP address or hostname -> IPP -> %s\n",
-		printer.URIs[0])
-
-	// ---- wait for ctx / failure ----
-	select {
-	case <-ctx.Done():
-		fmt.Println("dyj: shutting down")
-	case err := <-errCh:
-		if err != nil {
-			return err
-		}
-	}
-
-	shutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := spool.Close(shutCtx); err != nil {
-		logger.Printf("dyj: spool close: %v", err)
-	}
-	return srv.Shutdown(shutCtx)
-}
-
-func hostNameOr(override, name string) string {
-	if override != "" {
-		return override
-	}
-	return discovery.DefaultHostName(name)
-}
-
-func buildBackend(name string, o serveOptions) (driver.Interface, error) {
+// buildBackendFor instantiates the backend of one printer. A queue-less
+// wingdi/cups selection is a configuration error the wizard must catch —
+// but the NODE keeps running without that printer instead of dying.
+func buildBackendFor(spec printerSpec, o serveOptions) (driver.Interface, error) {
+	name := backendNameFor(spec, o)
 	switch name {
 	case "wingdi":
 		if runtime.GOOS != "windows" {
-			return nil, errors.New("backend wingdi requires Windows")
+			return nil, fmt.Errorf("backend wingdi requires Windows")
 		}
-		queue := o.Printer
-		if queue == "" {
-			return nil, errors.New("backend wingdi requires -printer <queue name> (see Get-Printer)")
+		if spec.Queue == "" {
+			return nil, fmt.Errorf("backend wingdi needs a queue name (share-side wizard or -printer)")
 		}
-		return &driver.WingDI{Printer: queue}, nil
+		return &driver.WingDI{Printer: spec.Queue}, nil
 	case "cups":
-		queue := o.Printer
+		queue := spec.Queue
 		if queue == "" {
 			qs, err := cups.Queues()
-			if err != nil {
-				return nil, fmt.Errorf("backend cups needs -printer <queue>: %w", err)
-			}
-			if len(qs) == 0 {
-				return nil, errors.New("backend cups needs -printer <queue> (lpstat -p shows none)")
+			if err != nil || len(qs) == 0 {
+				return nil, fmt.Errorf("backend cups needs a queue name (lpstat -p shows none)")
 			}
 			queue = qs[0].Name
 		}
@@ -344,7 +216,7 @@ func buildBackend(name string, o serveOptions) (driver.Interface, error) {
 	case "null":
 		return &driver.Null{}, nil
 	default:
-		return nil, fmt.Errorf("unknown backend %q (want wingdi|cups|file|null)", name)
+		return nil, fmt.Errorf("unknown backend %q (wingdi|cups|file|null)", name)
 	}
 }
 
@@ -380,6 +252,16 @@ func hostnameOr(def string) string {
 	return h
 }
 
+// hostNameOr resolves the mDNS host label: explicit override, else the
+// default derived from the service name (never the raw os.Hostname, which
+// on Windows is the NetBIOS name and does not resolve over mDNS).
+func hostNameOr(override, name string) string {
+	if override != "" {
+		return override
+	}
+	return discovery.DefaultHostName(name)
+}
+
 // asciiHostName reduces a host name to what a DNS SAN can hold: IA5String
 // allows only ASCII, so a CJK machine name ("生命") must fold to dashes —
 // and if nothing printable survives, fall back to "dyj".
@@ -408,8 +290,7 @@ func asciiHostName(s string) string {
 	return string(out)
 }
 
-// uuid.txt: a random UUIDv4 persisted next to the spool, so the
-// printer-uuid clients see stays stable across restarts.
+// loadOrCreateUUID reads/creates a stable UUID at path (one per printer).
 func loadOrCreateUUID(path string) (string, error) {
 	if data, err := os.ReadFile(path); err == nil {
 		if s := strings.TrimSpace(string(data)); len(s) == 36 {
@@ -512,4 +393,13 @@ func defaultStateDir() string {
 	default:
 		return "/var/lib/dyj"
 	}
+}
+
+// marshalOptions renders normalized options for persistence.
+func marshalOptions(o serveOptions) (string, error) {
+	b, err := json.MarshalIndent(o, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
 }
