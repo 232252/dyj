@@ -213,6 +213,10 @@ func serve(ctx context.Context, o serveOptions) error {
 	srv := ipp.NewServer(ipp.Options{Printer: printer, Sink: spool, Logger: logger, Admin: adminHandler})
 
 	// ---- listeners ----
+	hostName := o.Hostname
+	if hostName == "" {
+		hostName = discovery.DefaultHostName(o.Name)
+	}
 	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", o.Port))
 	if err != nil {
 		return fmt.Errorf("listen :%d: %w", o.Port, err)
@@ -221,7 +225,7 @@ func serve(ctx context.Context, o serveOptions) error {
 	go func() { errCh <- srv.Serve(ln) }()
 
 	if o.TLSPort > 0 {
-		if _, err := loadOrCreateTLSCert(stateDir, o.Name); err != nil {
+		if _, err := loadOrCreateTLSCert(stateDir, o.Name, hostName); err != nil {
 			return err
 		}
 		tln, err := net.Listen("tcp", fmt.Sprintf(":%d", o.TLSPort))
@@ -235,10 +239,6 @@ func serve(ctx context.Context, o serveOptions) error {
 	// ---- mDNS ----
 	var adv *discovery.Advertiser
 	if !o.NoMDNS {
-		hostName := o.Hostname
-		if hostName == "" {
-			hostName = discovery.DefaultHostName(o.Name)
-		}
 		adv, err = discovery.New(discovery.Config{
 			Instance: o.Name,
 			HostName: hostName,
@@ -380,6 +380,34 @@ func hostnameOr(def string) string {
 	return h
 }
 
+// asciiHostName reduces a host name to what a DNS SAN can hold: IA5String
+// allows only ASCII, so a CJK machine name ("生命") must fold to dashes —
+// and if nothing printable survives, fall back to "dyj".
+func asciiHostName(s string) string {
+	out := make([]byte, 0, len(s))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c >= 'A' && c <= 'Z':
+			c += 'a' - 'A'
+		case (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-':
+		default:
+			c = '-'
+		}
+		out = append(out, c)
+	}
+	for len(out) > 0 && (out[0] == '-' || out[0] == '.') {
+		out = out[1:]
+	}
+	for len(out) > 0 && (out[len(out)-1] == '-' || out[len(out)-1] == '.') {
+		out = out[:len(out)-1]
+	}
+	if len(out) == 0 {
+		return "dyj"
+	}
+	return string(out)
+}
+
 // uuid.txt: a random UUIDv4 persisted next to the spool, so the
 // printer-uuid clients see stays stable across restarts.
 func loadOrCreateUUID(path string) (string, error) {
@@ -408,7 +436,7 @@ func keyFile(dir string) string  { return filepath.Join(dir, "tls.key") }
 // generating one on first run (10 years, the printer hostname + IPs in
 // SANs). Clients that verify strictly must trust it; AirPrint-class
 // clients accept it.
-func loadOrCreateTLSCert(dir, name string) (tls.Certificate, error) {
+func loadOrCreateTLSCert(dir, name, hostName string) (tls.Certificate, error) {
 	certPath, keyPath := certFile(dir), keyFile(dir)
 	if cert, err := tls.LoadX509KeyPair(certPath, keyPath); err == nil {
 		return cert, nil
@@ -428,7 +456,7 @@ func loadOrCreateTLSCert(dir, name string) (tls.Certificate, error) {
 		NotAfter:     time.Now().Add(10 * 365 * 24 * time.Hour),
 		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		DNSNames:     []string{"localhost", strings.ToLower(strings.ReplaceAll(hostnameOr("dyj"), " ", "-")) + ".local"},
+		DNSNames:     []string{"localhost", asciiHostName(hostName) + ".local"},
 	}
 	tmpl.IPAddresses = append(tmpl.IPAddresses, net.IPv4(127, 0, 0, 1), net.IPv6loopback)
 	if ips := localIPs(); len(ips) > 0 {
