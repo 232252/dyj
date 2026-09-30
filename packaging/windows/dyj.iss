@@ -96,9 +96,9 @@ begin
   // Nothing interactive here: the checkbox lives on the finished page.
 end;
 
-procedure CurUninstallStep(CurUninstallStep: TUninstallStep);
+procedure CurUninstallStep(Step: TUninstallStep);
 begin
-  if CurUninstallStep = usPostUninstall then
+  if Step = usPostUninstall then
   begin
     if MsgBox('是否同时删除配置与打印历史？(%ProgramData%\dyj)', mbConfirmation, MB_YESNO) = IDYES then
       DelTree(ExpandConstant('{commonappdata}\dyj'), True, True, True);

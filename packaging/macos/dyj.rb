@@ -6,26 +6,26 @@
 class Dyj < Formula
   desc "LAN printer sharing, driverless (IPP Everywhere + mDNS)"
   homepage "https://github.com/sq199/dyj"
-  version "0.2.0"
+  version "0.4.0"
   license "Apache-2.0"
 
   on_macos do
     if Hardware::CPU.arm?
       url "https://github.com/sq199/dyj/releases/download/v#{version}/dyj-darwin-arm64.tar.gz"
-      sha256 "0000000000000000000000000000000000000000000000000000000000000000" # mark: darwin-arm64
+      sha256 "a281659c03ec0360c5ac0e7ee14690f7a77400a34aad9a13260f516e6ab01cd9" # mark: darwin-arm64
     else
       url "https://github.com/sq199/dyj/releases/download/v#{version}/dyj-darwin-amd64.tar.gz"
-      sha256 "0000000000000000000000000000000000000000000000000000000000000000" # mark: darwin-amd64
+      sha256 "0245244b536096f20eba1ab8f9ffe1b4538999e60a5666d805b3f28f55006d8b" # mark: darwin-amd64
     end
   end
 
   on_linux do
     if Hardware::CPU.arm? && Hardware::CPU.is_64_bit?
       url "https://github.com/sq199/dyj/releases/download/v#{version}/dyj-linux-arm64.tar.gz"
-      sha256 "0000000000000000000000000000000000000000000000000000000000000000" # mark: linux-arm64
+      sha256 "5b9aaa816667b0dbabbe65dce9e6d87928fc8d42039bf9b4c0e6eae5f6d04c91" # mark: linux-arm64
     else
       url "https://github.com/sq199/dyj/releases/download/v#{version}/dyj-linux-amd64.tar.gz"
-      sha256 "0000000000000000000000000000000000000000000000000000000000000000" # mark: linux-amd64
+      sha256 "c17132b11cc9043c94acd86eafb4956db81f3b723313824379aa974c647d1087" # mark: linux-amd64
     end
   end
 
