@@ -6,6 +6,46 @@ Format: [Keep a Changelog](https://keepachangelog.com/); versioning: semver.
 ## [Unreleased]
 
 ### Added
+- **Zero-config first run (ADR-0010 D1/D2, research/13)**: `dyj` with no
+  arguments opens a browser wizard with two roles — "share local printers"
+  (auto-enumerated via EnumPrintersW/lpstat, virtual writers hidden, one
+  click shares the selection) and "add a network printer" (LAN scan, 4-digit
+  pairing, automatic system-queue install, one-click test page). The node
+  ALWAYS boots — an unconfigured machine serves the wizard instead of dying
+  on a missing -printer (the v0.2 first-boot deadlock), ports probe upward
+  when taken, and `dyj open` (the installer desktop shortcut) finds the
+  running node.
+- **4-digit PIN pairing with device tokens (D3)**: rolling 10-minute PIN
+  (admin dashboard, tray menu, console banner), per-IP rate limiting with
+  lockout, constant-time compare, 128-bit tokens persisted only as SHA-256
+  hashes, per-device revoke. Data plane: loopback exempt, LAN default-deny;
+  tokens ride in the IPP URI path (`/p/<token>/ipp/print/<key>`) because the
+  Windows IPP Class Driver cannot send custom headers. mDNS TXT gains
+  `dyj=1`/`pair=1`/`dyjver=3`.
+- **Receiver-side automatic queue install (D4)**: `Add-Printer -IppUrl` on
+  Windows with automatic name dedup and a one-prompt UAC path (the wizard
+  relaunches this binary via runas and picks up the result file); `lpadmin
+  -m everywhere` on Linux/macOS. An added-printers registry
+  (`added-printers.json`) drives the manage/remove UI and client-side
+  doctor.
+- **Multi-printer sharing (D6)**: service.json grows `role` + `printers[]`
+  (v0.2 configs migrate on load); each printer gets its own IPP profile,
+  spooler and mDNS instance behind one listener; legacy single-printer
+  paths keep working.
+- **In-process config hot-reload (D5)**: saving config in the admin UI
+  rebuilds the share stack (mDNS goodbye → spool drain → new backends)
+  without closing the listener — `restart_required` is gone.
+- **Observability contract (D7)**: `pkg/logx` structured events
+  (logfmt `lvl/evt/kv`), rotating file logs under `<stateDir>/logs/` with
+  token/PIN redaction enforced in tests, the 24-checkpoint event set from
+  research/13 §5.2, doctor additions — mDNS-egress self-test (share side)
+  and `dyj doctor --client` (queue exists / server reachable / token
+  validity) — plus `docs/troubleshooting.md`, the symptom → event → fix
+  fault tree.
+- **Pairing management UI**: dashboard pairing-code card with countdown and
+  rotate, paired-device list with revoke; share wizard and add-printer
+  wizard pages; first-run redirect keyed off the server-side role.
+- **Branded tray gains the pairing code** as a live menu item.
 - **Brand identity** (docs/research/11): self-drawn vector mark (printer +
   broadcast waves, `assets/brand/dyj-mark.svg`) and full-color app tile
   (`assets/brand/dyj-logo.svg`); favicon (SVG + 4 KB multi-size ICO) served
@@ -27,6 +67,19 @@ Format: [Keep a Changelog](https://keepachangelog.com/); versioning: semver.
   the deb/rpm; the `.desktop` entry uses `Icon=dyj` instead of the generic
   theme printer icon. `scripts/genicons` regenerates every raster
   derivative from the 512 px master render.
+
+### Changed
+- **LAN data plane requires pairing (breaking)**: IPP requests from
+  non-loopback peers without a valid device token receive 401 (v0.2 served
+  anyone). Loopback keeps full access; the wizard is the supported path for
+  LAN clients.
+- **`service install` without flags persists a bootstrap config** (role "")
+  instead of options that fail to boot; the installer's argument-less
+  install now lands in the reachable wizard state.
+- **Admin config saves apply live**; the UI no longer claims a restart is
+  required.
+- **Windows installer** adds a desktop "dyj" shortcut (`dyj open`) and a
+  start-menu setup entry alongside the tray.
 
 ### Fixed
 - **serve crashed at startup with a non-ASCII machine name** when

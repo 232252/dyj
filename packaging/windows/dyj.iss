@@ -43,7 +43,11 @@ Name: "{commonappdata}\dyj"; Permissions: users-modify
 
 [Icons]
 Name: "{group}\dyj 打印机共享"; Filename: "{app}\dyj-tray.exe"; Comment: "打开 dyj 托盘与管理页"
-Name: "{group}\dyj 管理页"; Filename: "http://127.0.0.1:6631/admin"
+Name: "{group}\dyj 设置"; Filename: "{app}\dyj.exe"; Parameters: "open"; Comment: "向导 / 管理页（首次运行选角色）"
+Name: "{commondesktop}\dyj"; Filename: "{app}\dyj.exe"; Parameters: "open"; Comment: "dyj 设置与管理页"; Tasks: desktopicon
+
+[Tasks]
+Name: "desktopicon"; Description: "创建桌面快捷方式（dyj 设置）"; GroupDescription: "附加任务："
 
 [Run]
 ; --- firewall: program-scoped rules on every profile, before anything listens
