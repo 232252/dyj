@@ -1,23 +1,27 @@
-// app.js：hash 路由（#/status #/printer #/network #/jobs #/logs #/wizard）
-// + 侧栏联动（dyj-route 事件）+ 5s 状态轮询（页面隐藏时暂停）+ 401 时弹出
-// 轻量令牌输入条 + 首次进入自动跳设置向导。
+// app.js：hash 路由（#/status #/setup #/share #/add #/printer #/network
+// #/jobs #/logs）+ 侧栏联动 + 5s 状态轮询（页面隐藏时暂停）+ 401 时弹出
+// 轻量令牌输入条 + 未配置角色时自动跳 #/setup（以服务端 config.role 为准）。
 import { getStatus, getConfig, setToken } from './api.js';
 import { t, locale } from './i18n/index.js';
 import './components/dyj-sidebar.js';
 import './pages/page-dashboard.js';
+import './pages/page-setup.js';
+import './pages/page-share.js';
+import './pages/page-add.js';
 import './pages/page-printer.js';
 import './pages/page-network.js';
 import './pages/page-jobs.js';
 import './pages/page-logs.js';
-import './pages/page-wizard.js';
 
 const ROUTES = {
   status: 'dyj-page-dashboard',
+  setup: 'dyj-page-setup',
+  share: 'dyj-page-share',
+  add: 'dyj-page-add',
   printer: 'dyj-page-printer',
   network: 'dyj-page-network',
   jobs: 'dyj-page-jobs',
   logs: 'dyj-page-logs',
-  wizard: 'dyj-page-wizard',
 };
 
 document.documentElement.lang = locale === 'en' ? 'en' : 'zh-CN';
@@ -89,13 +93,14 @@ function showTokenBar() {
 
 window.addEventListener('dyj-unauthorized', showTokenBar);
 
-// ---- first-run wizard redirect ----
-async function checkWizard() {
+// ---- first-run redirect: server-side role is the truth (v0.3) ----
+async function checkSetup() {
   try {
     const { config } = await getConfig();
-    const noName = !config || !config.name;
-    if ((noName || !localStorage.getItem('dyj_seen_wizard')) && currentRoute() !== 'wizard') {
-      location.hash = '#/wizard';
+    const role = config?.role || '';
+    const r = currentRoute();
+    if (!role && !['setup', 'share', 'add'].includes(r)) {
+      location.hash = '#/setup';
     }
   } catch { /* 401 / 掉线：不跳 */ }
 }
@@ -110,7 +115,7 @@ function boot() {
       if (e?.status === 401) showTokenBar();
       startPolling(); // 循环里继续试，拿到权限后广播自然恢复
     });
-  checkWizard();
+  checkSetup();
 }
 
 boot();

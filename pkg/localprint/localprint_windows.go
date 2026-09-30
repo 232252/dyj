@@ -94,7 +94,10 @@ func Probe(name string) error {
 		return fmt.Errorf("queue name: %w", err)
 	}
 	var handle syscall.Handle
-	r1, _, callErr := procOpenPrinterW.Call(0, uintptr(unsafe.Pointer(pn)), uintptr(unsafe.Pointer(&handle)))
+	// OpenPrinterW(pPrinterName, phPrinter, pDefault) — the name comes
+	// FIRST; swapping the args hands the API a null name and crashes the
+	// process (caught by the live wizard test).
+	r1, _, callErr := procOpenPrinterW.Call(uintptr(unsafe.Pointer(pn)), uintptr(unsafe.Pointer(&handle)), 0)
 	if r1 == 0 {
 		return fmt.Errorf("OpenPrinter(%s): %w", name, callErr)
 	}

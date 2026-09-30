@@ -17,6 +17,7 @@ func TestIsVirtual(t *testing.T) {
 		{"OneNote 2020", "Generic Driver", "10.0.0.5", true}, // name hint
 		{"HP LaserJet", "HP Universal Printing", "USB001", false},
 		{"", "", "", false},
+		{"导出为WPS PDF", "Kingsoft Virtual Printer Driver", "Kingsoft Virtual Printer Port", true},
 	}
 	for _, c := range cases {
 		if got := IsVirtual(c.name, c.driver, c.port); got != c.want {

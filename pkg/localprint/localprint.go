@@ -60,6 +60,12 @@ func IsVirtual(name, driver, port string) bool {
 			return true
 		}
 	}
+	// Catch-alls for third-party document writers whose driver or port
+	// carries the word "virtual" (measured: Kingsoft/WPS "导出为WPS PDF"
+	// on "Kingsoft Virtual Printer Port").
+	if strings.Contains(strings.ToLower(port), "virtual") || strings.Contains(strings.ToLower(driver), "virtual") {
+		return true
+	}
 	return false
 }
 

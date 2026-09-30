@@ -161,6 +161,9 @@ type scanEntry struct {
 	Name      string   `json:"name"`
 	IsDyj     bool     `json:"dyj"`
 	NeedPIN   bool     `json:"need_pin"`
+	// Path is the IPP resource path non-dyj clients should install
+	// against (TXT rp=; "/ipp/print" when absent).
+	Path string `json:"path"`
 	Reachable bool     `json:"reachable"`
 	RTTms     int      `json:"rtt_ms"`
 }
@@ -182,10 +185,29 @@ func (n *node) apiScan(w http.ResponseWriter, r *http.Request) {
 	}
 	own := n.ownUUIDs()
 	out := make([]scanEntry, 0, len(found))
+	seen := map[string]bool{}
 	for _, f := range found {
+		// The reference-client path surfaces non-IPP services that merely
+		// coexist on the wire; only actual _ipp._tcp instances (or dyj
+		// TXT marks) belong in the add-printer list.
+		if !strings.Contains(f.Instance, "_ipp._tcp") && f.TXTMap["dyj"] != "1" {
+			continue
+		}
 		if own[strings.ToLower(f.TXTMap["UUID"])] || own[strings.ToLower(strings.TrimSuffix(f.Host, "."))] {
 			continue
 		}
+		// The instance label without the service suffix: both resolver
+		// paths report the same printer, sometimes with/without the
+		// trailing dot.
+		label := f.Instance
+		if i := strings.Index(label, "._ipp"); i > 0 {
+			label = label[:i]
+		}
+		dedupeKey := strings.ToLower(strings.TrimSuffix(label, ".")) + "|" + strings.ToLower(strings.TrimSuffix(f.Host, ".")) + "|" + fmt.Sprint(f.Port)
+		if seen[dedupeKey] {
+			continue // raw + reference client both saw it
+		}
+		seen[dedupeKey] = true
 		e := scanEntry{
 			Instance: f.Instance,
 			Host:     strings.TrimSuffix(f.Host, "."),
@@ -194,6 +216,7 @@ func (n *node) apiScan(w http.ResponseWriter, r *http.Request) {
 			Name:     f.TXTMap["ty"],
 			IsDyj:    f.TXTMap["dyj"] == "1",
 			NeedPIN:  f.TXTMap["pair"] == "1",
+			Path:     "/" + strings.TrimPrefix(f.TXTMap["rp"], "/"),
 		}
 		if e.Name == "" {
 			e.Name = f.Instance

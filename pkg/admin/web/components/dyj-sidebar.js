@@ -6,11 +6,12 @@ import { t } from '../i18n/index.js';
 
 const NAV = [
   ['status', 'activity', 'nav_status'],
+  ['setup', 'compass', 'nav_setup'],
+  ['add', 'wifi', 'nav_add'],
   ['printer', 'printer', 'nav_printer'],
   ['network', 'network', 'nav_network'],
   ['jobs', 'files', 'nav_jobs'],
   ['logs', 'file-text', 'nav_logs'],
-  ['wizard', 'compass', 'nav_wizard'],
 ];
 
 export function statusBadgeState(s) {

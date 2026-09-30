@@ -39,7 +39,9 @@ async function request(path, { method = 'GET', body } = {}) {
   try { data = await res.json(); } catch { /* non-JSON body */ }
   if (!res.ok) {
     if (res.status === 401) window.dispatchEvent(new CustomEvent('dyj-unauthorized'));
-    throw new ApiError(data?.error || 'http_' + res.status, res.status);
+    const err = new ApiError(data?.error || 'http_' + res.status, res.status);
+    err.data = data; // structured body (e.g. retry_after_sec) for callers
+    throw err;
   }
   return data;
 }
@@ -61,6 +63,19 @@ export const resumePrinter = () => request('resume', { method: 'POST' });
 export const getConfig = () => request('config');
 export const saveConfig = (config) => request('config', { method: 'PUT', body: config });
 export const getDiagnostics = () => request('diagnostics');
+
+// ---- v0.3: role wizard / pairing / receiver APIs ----
+export const getLocalPrinters = () => request('local-printers');
+export const scanServices = () => request('scan');
+export const pairWith = (body) => request('pair', { method: 'POST', body });
+export const installQueue = (body) => request('queue/install', { method: 'POST', body });
+export const removeQueue = (body) => request('queue/remove', { method: 'POST', body });
+export const testQueue = (body) => request('queue/test', { method: 'POST', body });
+export const getAddedPrinters = () => request('added-printers');
+export const getPairing = () => request('pairing');
+export const rotatePairing = () => request('pairing/rotate', { method: 'POST' });
+export const getDevices = () => request('devices');
+export const revokeDevice = (id) => request('devices/' + encodeURIComponent(id), { method: 'DELETE' });
 
 // openLogStream: SSE over fetch so the token header rides along.
 // Calls onOpen() when live, onLine(line) per data line, onClose() when the
