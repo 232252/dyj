@@ -12,7 +12,10 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
+	"time"
 
+	"github.com/sq199/dyj/pkg/discovery"
 	"github.com/sq199/dyj/pkg/driver"
 )
 
@@ -34,6 +37,10 @@ type Params struct {
 	Backend  string // backend name ("" = skip backend probe)
 	Printer  string // queue name for wingdi/cups
 	InProc   bool   // true when called from inside the running server
+
+	// MDNSInstances names the _ipp._tcp instances this node advertises;
+	// non-empty adds the egress self-test (browse and find ourselves).
+	MDNSInstances []string
 }
 
 // Levels.
@@ -57,7 +64,47 @@ func Run(p Params) []Check {
 	out = append(out, checkPDF())
 	out = append(out, checkFirewall())
 	out = append(out, checkBackend(p))
+	if p.MDNS && len(p.MDNSInstances) > 0 {
+		out = append(out, checkMDNSEgress(p))
+	}
 	return out
+}
+
+// checkMDNSEgress browses for our own instances: if the machine cannot
+// hear its own announcements, multi-homed egress is broken and LAN peers
+// are deaf too (the exact failure fixed in the acceptance round,
+// docs/research/12 §2 — this check keeps it from regressing silently).
+func checkMDNSEgress(p Params) Check {
+	ifaces, err := discovery.SelectInterfaces(nil)
+	if err != nil || len(ifaces) == 0 {
+		return Check{Name: "mdns-egress", Level: LevelWarn,
+			Detail: "没有可用组播网卡，无法自测 mDNS 出口",
+			Fix:    "运行 dyj list-interfaces 检查；必要时用 -iface 指定网卡"}
+	}
+	found, err := discovery.Browse(ifaces, 3*time.Second)
+	if err != nil {
+		return Check{Name: "mdns-egress", Level: LevelWarn,
+			Detail: "mDNS 查询失败: " + err.Error()}
+	}
+	for _, f := range found {
+		for _, want := range p.MDNSInstances {
+			if strings.Contains(strings.ToLower(f.Instance), strings.ToLower(want)) {
+				return Check{Name: "mdns-egress", Level: LevelOK,
+					Detail: fmt.Sprintf("本机能在网络上看到自己的广播（%s）", want)}
+			}
+		}
+	}
+	if runtime.GOOS == "windows" {
+		// Measured on the acceptance host: announcements egress fine
+		// (a Debian peer's avahi sees them) while the same machine's own
+		// browse cannot hear its own multicast loop. Windows receive of
+		// self-sent multicast is unreliable — keep this informational.
+		return Check{Name: "mdns-egress", Level: LevelInfo,
+			Detail: "Windows 上本机自测听不到自己的广播（平台限制）；跨机验证可用：对端 avahi-browse -rt _ipp._tcp"}
+	}
+	return Check{Name: "mdns-egress", Level: LevelFail,
+		Detail: "本机广播了自己，但网络上查询不到（多网卡出口异常）",
+		Fix:    "运行 dyj list-interfaces，用 -iface 指定局域网网卡；检查防火墙是否放行 UDP 5353"}
 }
 
 func checkStateDir(p Params) Check {

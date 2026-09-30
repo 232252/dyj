@@ -5,9 +5,14 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net"
+	"net/http"
 	"os"
+	"path/filepath"
+	"time"
 
 	"github.com/sq199/dyj/pkg/doctor"
+	"github.com/sq199/dyj/pkg/sysqueue"
 )
 
 // cmdDoctor runs the diagnostics and prints them human-readable
@@ -16,6 +21,7 @@ import (
 func cmdDoctor(args []string) error {
 	var o serveOptions
 	asJSON := false
+	asClient := false
 	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
 	fs.IntVar(&o.Port, "port", 6631, "IPP port to check")
 	fs.IntVar(&o.TLSPort, "tls-port", 0, "ipps port")
@@ -23,20 +29,30 @@ func cmdDoctor(args []string) error {
 	fs.StringVar(&o.Backend, "backend", "", "backend to probe (wingdi|cups|file|null)")
 	fs.StringVar(&o.Printer, "printer", "", "queue name")
 	fs.StringVar(&o.Spool, "spool", "", "state dir")
+	fs.BoolVar(&asClient, "client", false, "check the added network printers instead of the share side")
 	fs.BoolVar(&asJSON, "json", false, "machine-readable output")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
-	checks := doctorParams(o, o.Spool, false)
+	var checks []doctor.Check
+	if asClient {
+		stateDir := o.Spool
+		if stateDir == "" {
+			stateDir = defaultStateDir()
+		}
+		checks = runClientChecks(stateDir)
+	} else {
+		checks = doctor.Run(doctorParams(o, o.Spool, false))
+	}
 	if asJSON {
-		return json.NewEncoder(os.Stdout).Encode(map[string]any{"checks": doctor.Run(checks)})
+		return json.NewEncoder(os.Stdout).Encode(map[string]any{"checks": checks})
 	}
 	icon := map[string]string{
 		doctor.LevelOK: "[ ok ]", doctor.LevelWarn: "[警告]", doctor.LevelFail: "[失败]", doctor.LevelInfo: "[说明]",
 	}
 	failed := false
-	for _, c := range doctor.Run(checks) {
+	for _, c := range checks {
 		fmt.Printf("%s %-10s %s\n", icon[c.Level], c.Name, c.Detail)
 		if c.Fix != "" {
 			fmt.Printf("             └─ %s\n", c.Fix)
@@ -72,7 +88,75 @@ func doctorParams(o serveOptions, stateDir string, inProc bool) doctor.Params {
 	if p.Backend == "" {
 		p.Backend = o.Backend
 	}
+	for _, spec := range o.Printers {
+		p.MDNSInstances = append(p.MDNSInstances, spec.Name)
+	}
 	return p
+}
+
+// runClientChecks diagnoses the RECEIVER side (research/13 §5.4): every
+// added printer is checked for queue presence, server reachability and
+// pairing-token validity (a 401 means the share side revoked us).
+func runClientChecks(stateDir string) []doctor.Check {
+	var out []doctor.Check
+	data, err := os.ReadFile(filepath.Join(stateDir, "added-printers.json"))
+	if err != nil {
+		return []doctor.Check{{Name: "client", Level: doctor.LevelInfo,
+			Detail: "本机没有添加过网络打印机（added-printers.json 不存在）"}}
+	}
+	var added []addedPrinter
+	if err := json.Unmarshal(data, &added); err != nil || len(added) == 0 {
+		return []doctor.Check{{Name: "client", Level: doctor.LevelInfo,
+			Detail: "本机没有添加过网络打印机"}}
+	}
+	client := &http.Client{Timeout: 3 * time.Second}
+	for _, a := range added {
+		base := fmt.Sprintf("http://%s", net.JoinHostPort(a.ServerHost, fmt.Sprint(a.ServerPort)))
+		// queue exists?
+		if ok, err := sysqueue.Exists(a.QueueName); err != nil {
+			out = append(out, doctor.Check{Name: "client-queue-exists", Level: doctor.LevelWarn,
+				Detail: fmt.Sprintf("无法查询系统队列 %s: %v", a.QueueName, err)})
+		} else if !ok {
+			out = append(out, doctor.Check{Name: "client-queue-exists", Level: doctor.LevelFail,
+				Detail: fmt.Sprintf("系统队列 %s 不存在（可能被手动删除）", a.QueueName),
+				Fix:    "在 dyj 管理页 → 添加打印机 重新安装"})
+			continue
+		} else {
+			out = append(out, doctor.Check{Name: "client-queue-exists", Level: doctor.LevelOK,
+				Detail: fmt.Sprintf("系统队列 %s 存在", a.QueueName)})
+		}
+		// server reachable?
+		conn, err := net.DialTimeout("tcp", net.JoinHostPort(a.ServerHost, fmt.Sprint(a.ServerPort)), 2*time.Second)
+		if err != nil {
+			out = append(out, doctor.Check{Name: "client-uri-reachable", Level: doctor.LevelFail,
+				Detail: fmt.Sprintf("共享端 %s:%d 不可达（对方关机/换网或 IP 变了）", a.ServerHost, a.ServerPort),
+				Fix:    "在 dyj 管理页 → 添加打印机 重新扫描并重装"})
+			continue
+		}
+		conn.Close()
+		out = append(out, doctor.Check{Name: "client-uri-reachable", Level: doctor.LevelOK,
+			Detail: fmt.Sprintf("共享端 %s:%d 可达", a.ServerHost, a.ServerPort)})
+		// token still valid? (the router answers 401 for revoked tokens)
+		if a.URIPath != "" {
+			resp, err := client.Get(base + a.URIPath)
+			if err == nil {
+				resp.Body.Close()
+				switch resp.StatusCode {
+				case http.StatusOK:
+					out = append(out, doctor.Check{Name: "client-token-valid", Level: doctor.LevelOK,
+						Detail: "配对仍然有效"})
+				case http.StatusUnauthorized:
+					out = append(out, doctor.Check{Name: "client-token-valid", Level: doctor.LevelFail,
+						Detail: "配对已被共享端撤销（或服务端重置），打印会失败",
+						Fix:    "在共享端管理页查看新配对码，本机重新配对并重装队列"})
+				default:
+					out = append(out, doctor.Check{Name: "client-token-valid", Level: doctor.LevelWarn,
+						Detail: fmt.Sprintf("共享端返回 HTTP %d（服务可能在启动中）", resp.StatusCode)})
+				}
+			}
+		}
+	}
+	return out
 }
 
 // parseServeOptionsJSON validates an options JSON coming from the admin
