@@ -56,7 +56,9 @@ export function errMessage(e) {
 }
 
 export const getStatus = () => request('status');
-export const getJobs = (which = 'all') => request('jobs?which=' + encodeURIComponent(which));
+// getJobs(which, limit)：limit 只取最近 N 条（服务端"最近打印"块，最新在前）。
+export const getJobs = (which = 'all', limit = 0) =>
+  request('jobs?which=' + encodeURIComponent(which) + (limit > 0 ? '&limit=' + limit : ''));
 export const cancelJob = (id) => request(`jobs/${id}/cancel`, { method: 'POST' });
 export const pausePrinter = () => request('pause', { method: 'POST' });
 export const resumePrinter = () => request('resume', { method: 'POST' });
@@ -76,6 +78,31 @@ export const getPairing = () => request('pairing');
 export const rotatePairing = () => request('pairing/rotate', { method: 'POST' });
 export const getDevices = () => request('devices');
 export const revokeDevice = (id) => request('devices/' + encodeURIComponent(id), { method: 'DELETE' });
+
+// exportDiag：诊断包下载（research/14 §6.3）。zip 是二进制，走 blob 而非
+// request() 的 JSON 通道；令牌头照常注入，文件名取 Content-Disposition。
+export async function exportDiag() {
+  const headers = {};
+  const tok = getToken();
+  if (tok) headers['X-Dyj-Token'] = tok;
+  const res = await fetch('/admin/api/diag/export', { headers });
+  if (!res.ok) {
+    if (res.status === 401) window.dispatchEvent(new CustomEvent('dyj-unauthorized'));
+    throw new ApiError('http_' + res.status, res.status);
+  }
+  const blob = await res.blob();
+  const m = (res.headers.get('Content-Disposition') || '').match(/filename=(dyj-diag-[\d-]+\.zip)/);
+  const name = m ? m[1] : 'dyj-diag.zip';
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 3000);
+  return name;
+}
 
 // openLogStream: SSE over fetch so the token header rides along.
 // Calls onOpen() when live, onLine(line) per data line, onClose() when the

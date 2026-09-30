@@ -1,35 +1,44 @@
-// app.js：hash 路由（#/status #/setup #/share #/add #/printer #/network
-// #/jobs #/logs）+ 侧栏联动 + 5s 状态轮询（页面隐藏时暂停）+ 401 时弹出
-// 轻量令牌输入条 + 未配置角色时自动跳 #/setup（以服务端 config.role 为准）。
+// app.js：v0.4 极简路由（research/14 §3.1）——#/ #/server #/client #/help
+// 四条路由、无侧栏。旧 v0.3 hash 就地重定向保书签；首屏按服务端 role 落地
+// （share/both→server、use→client、""→两卡片首页）。5s 状态轮询（页面隐藏
+// 时暂停）+ 401 时弹出轻量令牌输入条。
 import { getStatus, getConfig, setToken } from './api.js';
 import { t, locale } from './i18n/index.js';
-import './components/dyj-sidebar.js';
-import './pages/page-dashboard.js';
-import './pages/page-setup.js';
-import './pages/page-share.js';
-import './pages/page-add.js';
-import './pages/page-printer.js';
-import './pages/page-network.js';
-import './pages/page-jobs.js';
-import './pages/page-logs.js';
+import './components/dyj-topbar.js';
+import './pages/page-home.js';
+import './pages/page-server.js';
+import './pages/page-client.js';
+import './pages/page-help.js';
 
 const ROUTES = {
-  status: 'dyj-page-dashboard',
-  setup: 'dyj-page-setup',
-  share: 'dyj-page-share',
-  add: 'dyj-page-add',
-  printer: 'dyj-page-printer',
-  network: 'dyj-page-network',
-  jobs: 'dyj-page-jobs',
-  logs: 'dyj-page-logs',
+  '': 'dyj-page-home',
+  server: 'dyj-page-server',
+  client: 'dyj-page-client',
+  help: 'dyj-page-help',
+};
+
+// v0.3 书签 → v0.4 路由（调研 14 §7.4）。
+const REDIRECT = {
+  status: '',
+  setup: '',
+  share: 'server',
+  add: 'client',
+  printer: 'server',
+  network: 'help',
+  jobs: 'server',
+  logs: 'help',
 };
 
 document.documentElement.lang = locale === 'en' ? 'en' : 'zh-CN';
 document.title = t('app_title');
 
 function currentRoute() {
-  const r = location.hash.replace(/^#\/?/, '');
-  return ROUTES[r] ? r : 'status';
+  let r = location.hash.replace(/^#\/?/, '');
+  if (r in REDIRECT) {
+    r = REDIRECT[r];
+    history.replaceState(null, '', '#' + r);
+  }
+  return r in ROUTES ? r : '';
 }
 
 function render() {
@@ -38,7 +47,7 @@ function render() {
   window.dispatchEvent(new CustomEvent('dyj-route', { detail: r }));
 }
 
-// ---- status polling: one fetch feeds sidebar badge + dashboard ----
+// ---- status polling: one fetch feeds topbar badge + pages ----
 let pollTimer = 0;
 
 async function poll() {
@@ -93,20 +102,19 @@ function showTokenBar() {
 
 window.addEventListener('dyj-unauthorized', showTokenBar);
 
-// ---- first-run redirect: server-side role is the truth (v0.3) ----
-async function checkSetup() {
+// ---- landing: 默认落地页按 role 决定（已配置的机器没有导航这件事） ----
+async function landingRole() {
+  if (currentRoute() !== '') return; // 用户已明确选择页面，不打扰
   try {
     const { config } = await getConfig();
     const role = config?.role || '';
-    const r = currentRoute();
-    if (!role && !['setup', 'share', 'add'].includes(r)) {
-      location.hash = '#/setup';
-    }
-  } catch { /* 401 / 掉线：不跳 */ }
+    if (role === 'use') location.hash = '#/client';
+    else if (role === 'share' || role === 'both') location.hash = '#/server';
+  } catch { /* 401 / 掉线：留在两卡片首页 */ }
 }
 
 function boot() {
-  if (!location.hash) history.replaceState(null, '', '#/status');
+  if (!location.hash) history.replaceState(null, '', '#/');
   render();
   window.addEventListener('hashchange', render);
   getStatus()
@@ -115,7 +123,7 @@ function boot() {
       if (e?.status === 401) showTokenBar();
       startPolling(); // 循环里继续试，拿到权限后广播自然恢复
     });
-  checkSetup();
+  landingRole();
 }
 
 boot();

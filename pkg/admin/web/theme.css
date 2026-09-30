@@ -28,7 +28,6 @@
   --dyj-pad-s: 8px;
   --dyj-pad-m: 16px;
   --dyj-pad-l: 24px;
-  --dyj-sidebar-w: 224px;
   --dyj-shadow: 0 1px 2px rgb(0 0 0 / 6%);
 }
 
@@ -58,6 +57,7 @@ html, body { margin: 0; padding: 0; }
 
 body {
   display: flex;
+  flex-direction: column;
   min-height: 100vh;
   background: var(--dyj-bg);
   color: var(--dyj-text);
@@ -65,12 +65,12 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-dyj-sidebar { width: var(--dyj-sidebar-w); flex: none; }
-
+/* v0.4：无侧栏。角色即主页，顶栏只有品牌 + 状态 + 帮助（research/14 §3.1）。 */
 main#page {
   flex: 1;
-  min-width: 0;
+  width: 100%;
   max-width: 980px;
+  margin: 0 auto;
   padding: var(--dyj-pad-l);
 }
 
@@ -83,8 +83,6 @@ main#page section { margin-bottom: 16px; }
 main#page code, main#page pre { font-family: var(--dyj-mono); }
 
 @media (max-width: 720px) {
-  body { flex-direction: column; }
-  dyj-sidebar { width: auto; }
   main#page { padding: 16px; }
 }
 

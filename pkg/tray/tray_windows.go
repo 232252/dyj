@@ -66,6 +66,10 @@ func Run(opts Options) error {
 		itemStartup = systray.AddMenuItem("登录时启动托盘", "当前用户登录后自动显示托盘图标")
 		systray.AddSeparator()
 		itemQuit = systray.AddMenuItem("退出托盘", "只退出托盘图标，后台打印服务继续运行")
+		// Share actions wait for the first role poll (research/14 §3.7):
+		// receiver machines never see 配对码/暂停共享 at all.
+		itemPin.Hide()
+		itemPause.Hide()
 
 		itemStartup.Check()
 		if on, err := autostart.Enabled(); err == nil && on {
@@ -117,9 +121,22 @@ func Run(opts Options) error {
 		go func() {
 			last := State(-1)
 			lastPin := ""
+			lastRole := "?"
 			for {
 				st := c.State()
 				pin := c.Pin()
+				role := c.Role()
+				if role != lastRole {
+					sharing := role == "share" || role == "both"
+					if sharing {
+						itemPin.Show()
+						itemPause.Show()
+					} else {
+						itemPin.Hide()
+						itemPause.Hide()
+					}
+					lastRole = role
+				}
 				if st != last || pin != lastPin {
 					refresh(c, itemPause)
 					if itemPin != nil {

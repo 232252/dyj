@@ -60,6 +60,15 @@ type pairingResponse struct {
 	RemainSec int    `json:"remain_sec"`
 }
 
+// configResponse is the slice of GET /admin/api/config the tray needs
+// (research/14 §3.7): the role decides whether share actions (pairing
+// code, pause) belong in the menu at all — a receiver machine never does.
+type configResponse struct {
+	Config struct {
+		Role string `json:"role"`
+	} `json:"config"`
+}
+
 // Controller drives the tray: it polls status, exposes the current
 // state, and performs the actions. The Windows glue (systray menus)
 // sits on top of this in tray_windows.go; tests drive it directly.
@@ -70,6 +79,7 @@ type Controller struct {
 	state  State
 	queued int
 	pin    string
+	role   string
 }
 
 // NewController builds a controller for opts.
@@ -108,6 +118,14 @@ func (c *Controller) Pin() string {
 	return c.pin
 }
 
+// Role reports the configured role ("", "share", "use", "both"); ""
+// while the admin API is unreachable.
+func (c *Controller) Role() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.role
+}
+
 // Poll refreshes state once. Exported for tests; PollLoop calls it.
 func (c *Controller) Poll(ctx context.Context) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.opts.AdminURL+"/admin/api/status", nil)
@@ -143,6 +161,32 @@ func (c *Controller) Poll(ctx context.Context) {
 	} else {
 		c.setPin("")
 	}
+	c.pollRole(ctx)
+}
+
+// pollRole refreshes the configured role (best-effort: an old server or
+// a hiccup keeps the previous value, the menu just stays as it was).
+func (c *Controller) pollRole(ctx context.Context) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.opts.AdminURL+"/admin/api/config", nil)
+	if err != nil {
+		return
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return
+	}
+	var cr configResponse
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
+	if err != nil || json.Unmarshal(body, &cr) != nil {
+		return
+	}
+	c.mu.Lock()
+	c.role = cr.Config.Role
+	c.mu.Unlock()
 }
 
 func (c *Controller) pollPin(ctx context.Context) {

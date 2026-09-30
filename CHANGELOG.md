@@ -5,6 +5,39 @@ Format: [Keep a Changelog](https://keepachangelog.com/); versioning: semver.
 
 ## [Unreleased]
 
+### Changed
+- **Minimal two-mode UI (v0.4, ADR-0011 / research/14)**: the admin console is
+  gone — the whole product is now 4 routes with no sidebar (`#/` role cards,
+  `#/server`, `#/client`, `#/help`); a configured machine lands directly on its
+  role's home page (server: PIN + per-printer share switches + connected
+  devices + an 8-row recent-prints block; client: scan → 4-digit code modal →
+  install → installed list with live per-printer status). Old v0.3 hashes
+  redirect. The network page (port/TLS/mDNS/hostname/ifaces), the printer
+  management page, the URI copy fields, the per-platform manual setup guides
+  and the metrics cards are all REMOVED from the UI — ports, drivers, queue
+  names and connection hosts are automated behavior now (research/14 §4);
+  CLI flags and service.json remain the only "advanced" surface.
+- **Copy rules enforced by a test**: a banned-words guard scans both i18n
+  tables; engineering jargon may only appear under `help_`/`about_`/`token_`
+  keys (the help page is the single read-only home for technical info: doctor
+  self-check, log tail, about line).
+- **Tray menu follows the role**: pairing code and pause/resume only appear
+  on machines configured as share/both; receiver machines see open/autostart/quit.
+
+### Added
+- **`GET /admin/api/diag/export`** (help page button): one zip with summary,
+  live config (no secrets), doctor checks (share + receiver sides) and the
+  256 KB log tail — send one file, get a diagnosis.
+- **`GET /admin/api/added-printers` now carries a per-printer `status`**
+  (`ok` / `offline` / `missing` / `revoked`), a read-only receiver snapshot
+  for the client home list.
+- **`GET /admin/api/jobs?limit=N`** returns the newest N jobs (newest first)
+  for the server home "recent prints" block.
+- **4-digit PIN input component** (auto-advance, backspace, whole-code paste,
+  one-time-code autocomplete) behind the client pairing dialog.
+
+## [0.3.0] — 2026-09-30
+
 ### Added
 - **Zero-config first run (ADR-0010 D1/D2, research/13)**: `dyj` with no
   arguments opens a browser wizard with two roles — "share local printers"

@@ -7,6 +7,7 @@
 package main
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -16,11 +17,14 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/sq199/dyj/pkg/discovery"
+	"github.com/sq199/dyj/pkg/doctor"
 	"github.com/sq199/dyj/pkg/localprint"
 	"github.com/sq199/dyj/pkg/sysqueue"
 )
@@ -37,6 +41,7 @@ func (n *node) extraAPIs() map[string]http.Handler {
 		"pairing":        http.HandlerFunc(n.apiPairing),
 		"pairing/rotate": http.HandlerFunc(n.apiPairingRotate),
 		"devices":        http.HandlerFunc(n.apiDevices),
+		"diag/export":    http.HandlerFunc(n.apiDiagExport),
 	}
 }
 
@@ -154,18 +159,18 @@ func (n *node) apiDevices(w http.ResponseWriter, r *http.Request) {
 
 // scanEntry is one discovered IPP service for the add-printer list.
 type scanEntry struct {
-	Instance  string   `json:"instance"`
-	Host      string   `json:"host"`
-	Port      int      `json:"port"`
-	Addrs     []string `json:"addrs"`
-	Name      string   `json:"name"`
-	IsDyj     bool     `json:"dyj"`
-	NeedPIN   bool     `json:"need_pin"`
+	Instance string   `json:"instance"`
+	Host     string   `json:"host"`
+	Port     int      `json:"port"`
+	Addrs    []string `json:"addrs"`
+	Name     string   `json:"name"`
+	IsDyj    bool     `json:"dyj"`
+	NeedPIN  bool     `json:"need_pin"`
 	// Path is the IPP resource path non-dyj clients should install
 	// against (TXT rp=; "/ipp/print" when absent).
-	Path string `json:"path"`
-	Reachable bool     `json:"reachable"`
-	RTTms     int      `json:"rtt_ms"`
+	Path      string `json:"path"`
+	Reachable bool   `json:"reachable"`
+	RTTms     int    `json:"rtt_ms"`
 }
 
 // apiScan browses _ipp._tcp on the LAN (USE-1/2). dyj shares carry the
@@ -455,7 +460,109 @@ func (n *node) apiAddedPrinters(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusMethodNotAllowed, "GET only")
 		return
 	}
-	_ = json.NewEncoder(w).Encode(map[string]any{"printers": n.added.list()})
+	list := n.added.list()
+	out := make([]addedPrinterStatus, 0, len(list))
+	for _, a := range list {
+		out = append(out, addedPrinterStatus{addedPrinter: a, Status: addedStatus(a)})
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(map[string]any{"printers": out})
+}
+
+// addedPrinterStatus is one registry entry plus its live receiver state
+// (research/14 §7.2-B2): a read-only snapshot for the client home list.
+type addedPrinterStatus struct {
+	addedPrinter
+	Status string `json:"status"`
+}
+
+// addedStatus classifies one added printer: missing (system queue gone),
+// offline (share side unreachable), revoked (share side answered 401) or
+// ok. Anything inconclusive stays ok — the diagnostics page is the place
+// for deeper answers, this list must stay cheap.
+func addedStatus(a addedPrinter) string {
+	if ok, err := sysqueue.Exists(a.QueueName); err == nil && !ok {
+		return "missing"
+	}
+	if a.ServerHost == "" || a.ServerPort <= 0 {
+		return "ok"
+	}
+	addr := net.JoinHostPort(a.ServerHost, strconv.Itoa(a.ServerPort))
+	conn, err := net.DialTimeout("tcp", addr, 800*time.Millisecond)
+	if err != nil {
+		return "offline"
+	}
+	conn.Close()
+	if a.URIPath != "" {
+		client := &http.Client{Timeout: 3 * time.Second}
+		if resp, err := client.Get("http://" + addr + a.URIPath); err == nil {
+			resp.Body.Close()
+			if resp.StatusCode == http.StatusUnauthorized {
+				return "revoked"
+			}
+		}
+	}
+	return "ok"
+}
+
+// apiDiagExport bundles what a helper needs to diagnose remotely
+// (research/14 §6.3): summary, live config (no secrets — the admin token
+// lives in its own file), doctor checks (share side + receiver side) and
+// the tail of the rotating log. Served as one zip download.
+func (n *node) apiDiagExport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", "GET")
+		writeErr(w, http.StatusMethodNotAllowed, "GET only")
+		return
+	}
+	n.mu.Lock()
+	cfg := n.cfg
+	n.mu.Unlock()
+
+	n.log.Info("diag.export", "src", r.RemoteAddr)
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+
+	host, _ := os.Hostname()
+	if s, err := zw.Create("summary.txt"); err == nil {
+		fmt.Fprintf(s, "dyj %s\nos=%s/%s\nhost=%s\ntime=%s\nrole=%s\n",
+			dyjVersion, runtime.GOOS, runtime.GOARCH, host,
+			time.Now().Format(time.RFC3339), cfg.Role)
+	}
+	if s, err := zw.Create("config.json"); err == nil {
+		if data, err := json.MarshalIndent(cfg, "", "  "); err == nil {
+			_, _ = s.Write(data)
+		}
+	}
+	if s, err := zw.Create("checks.json"); err == nil {
+		checks := doctor.Run(doctorParams(cfg, n.stateDir, true))
+		checks = append(checks, runClientChecks(n.stateDir)...)
+		_ = json.NewEncoder(s).Encode(map[string]any{"checks": checks})
+	}
+	if s, err := zw.Create("log.txt"); err == nil {
+		f, err := os.Open(filepath.Join(n.stateDir, "logs", "dyj.log"))
+		if err != nil {
+			fmt.Fprintln(s, "(log file not available:", err, ")")
+		} else {
+			const tail = 256 << 10
+			if pos, err := f.Seek(0, io.SeekEnd); err == nil && pos > tail {
+				fmt.Fprintf(s, "(...truncated, showing last %d bytes...)\n", tail)
+				_, _ = f.Seek(-tail, io.SeekEnd)
+			} else {
+				_, _ = f.Seek(0, io.SeekStart)
+			}
+			_, _ = io.Copy(s, f)
+			f.Close()
+		}
+	}
+	if err := zw.Close(); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition",
+		fmt.Sprintf("attachment; filename=dyj-diag-%s.zip", time.Now().Format("20060102-150405")))
+	_, _ = w.Write(buf.Bytes())
 }
 
 // loadOrCreateDeviceID returns this machine's stable receiver identity.

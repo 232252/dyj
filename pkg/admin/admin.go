@@ -295,6 +295,18 @@ func (h *Handler) handleJobs(w http.ResponseWriter, r *http.Request) {
 		which = "all"
 	}
 	rows := h.opts.Spool.Snapshot(which)
+	// limit serves the v0.4 "最近打印" block (research/14 §3.3): the most
+	// recent tail of the queue, newest first (Snapshot itself is oldest
+	// first by job id).
+	if lim := r.URL.Query().Get("limit"); lim != "" {
+		if n, err := strconv.Atoi(lim); err == nil && n > 0 && n < len(rows) {
+			tail := rows[len(rows)-n:]
+			for i, j := 0, len(tail)-1; i < j; i, j = i+1, j-1 {
+				tail[i], tail[j] = tail[j], tail[i]
+			}
+			rows = tail
+		}
+	}
 	out := make([]jobJSON, 0, len(rows))
 	for _, v := range rows {
 		out = append(out, jobToJSON(v))
