@@ -29,6 +29,22 @@ Format: [Keep a Changelog](https://keepachangelog.com/); versioning: semver.
   derivative from the 512 px master render.
 
 ### Fixed
+- **serve crashed at startup with a non-ASCII machine name** when
+  `-tls-port` was set: the self-signed certificate's DNS SAN folded the
+  host name to `生命.local`, which x509 rejects (DNS names are IA5String);
+  host names are now folded to `[a-z0-9-]` with a `dyj` fallback, and the
+  `-hostname` override feeds the certificate too (regression test with a
+  CJK host name included; found in Windows physical-machine acceptance).
+- **mDNS announcements never left the wire on multi-homed Windows** (and
+  could mis-route on multi-homed Linux): per-interface sockets bound the
+  wildcard address, where Windows ignores `IP_MULTICAST_IF` for egress, so
+  every announcement followed the default route's NIC and LAN peers heard
+  nothing. Sockets now bind the interface address, pinning both send and
+  receive (measured: Debian peer's Avahi saw nothing before, both services
+  plus CUPS auto-created queues after).
+- **`dyj status` printed only the first declared format**: the table
+  carries four, the client used a first-value getter; it now joins the
+  full `document-format-supported` list.
 - **Admin UI white-screen at `/admin` without a trailing slash**: the
   handler served index.html in place, so browsers resolved `app.js` against
   the server root and rejected its text/plain MIME; `/admin` now 301s to
@@ -38,6 +54,19 @@ Format: [Keep a Changelog](https://keepachangelog.com/); versioning: semver.
   so the first `steps=` / `check=` assignment threw and left both empty;
   both attach in the constructor now (caught by live UI verification while
   shipping the icon work).
+
+### Notes
+- **v0.3 zero-config redesign approved as ADR-0010** (design only, not yet
+  implemented): first-run web wizard with two roles — "share local printers"
+  (auto-enumerate, one-click share) and "add a network printer" (auto-scan,
+  4-digit PIN pairing, automatic system queue install so the printer shows up
+  in WPS/Word with dyj out of the print path); device tokens carried in the
+  IPP URI path (loopback exempt, LAN default-deny), in-process config reload,
+  multi-printer model, and an observability contract (structured event logs
+  with file rotation, a 24-checkpoint table, client-side doctor checks, a
+  symptom-to-fix fault tree). Phased P0–P3 plan with acceptance criteria in
+  `docs/research/13-zero-config-redesign.md`; breaks LAN clients without a
+  token once P1 ships.
 
 ## [0.2.0] — 2026-09-29
 

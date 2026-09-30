@@ -106,3 +106,9 @@ dist/
 
 # local scanner cache
 .mimosa/
+
+# dyj file-backend default output (dev runs)
+/dyj-out/
+
+# ZCode session artifacts
+/.zcode/

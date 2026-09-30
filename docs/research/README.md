@@ -21,6 +21,8 @@
 | [`07-go-ipp-server-capability.md`](07-go-ipp-server-capability.md) | **附录 E**：`go-ipp` 服务端能力实测 —— **发现属性编码硬缺口** | ✅ Lead 实测 |
 | [`08-independent-review.md`](08-independent-review.md) | **附录 F**：对调研结论的独立复核（含"否决 Rust"的关键论据确认） | ✅ Lead 复核 |
 | [`10-ui-and-platform-deployment.md`](10-ui-and-platform-deployment.md) | **Phase 1 前瞻**：GUI 选型（Web 管理页+可选托盘）、控件组件化、三平台安装/自启/防火墙/签名/分发（Win: Inno+SCM；Linux: nfpm+systemd+avahi；macOS: launchd+brew）；含 `service_unix.go` 修正清单与 cups 后端 gap | ✅ 调研产出（待 ADR 定稿） |
+| [`12-windows-acceptance-2026-09-30.md`](12-windows-acceptance-2026-09-30.md) | **附录 G**：v0.2 后 Windows 物理机验收（wingdi 真驱动无纸链路、跨平台客户端矩阵、管理页鉴权；发现的 TLS 中文主机名崩溃与多网卡 mDNS 缺口及修复）；含 10.126.126.2 交接 runbook | ✅ Lead 实测 |
+| [`13-zero-config-redesign.md`](13-zero-config-redesign.md) | **v0.3 详细设计**：单程序角色向导（共享本机打印机 / 添加网络打印机）、4 位码配对与 URI 路径 token 鉴权、接收端自动装系统队列（WPS 直接可见）、进程内热生效、多打印机模型；可观测性契约（结构化事件日志、文件日志、24 项检查点表、doctor 客户端扩展、故障树）；P0–P3 阶段与验收标准 | ✅ 设计产出（决策见 [ADR-0010](../adr/0010-role-wizard-pairing.md)，待实施） |
 
 ## 三句话结论
 
