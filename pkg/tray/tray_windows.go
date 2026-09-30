@@ -47,6 +47,7 @@ func Run(opts Options) error {
 
 	var (
 		itemOpen    *systray.MenuItem
+		itemPin     *systray.MenuItem
 		itemPause   *systray.MenuItem
 		itemStartup *systray.MenuItem
 		itemQuit    *systray.MenuItem
@@ -58,6 +59,8 @@ func Run(opts Options) error {
 		systray.SetTooltip("dyj — 连接中…")
 
 		itemOpen = systray.AddMenuItem("打开管理页", "在浏览器中打开 dyj 管理页")
+		itemPin = systray.AddMenuItem("配对码：…", "接收端添加打印机时输入的 4 位数字")
+		itemPin.Disable()
 		systray.AddSeparator()
 		itemPause = systray.AddMenuItem("暂停共享", "暂停接受新的打印作业（队列中的作业会打完）")
 		itemStartup = systray.AddMenuItem("登录时启动托盘", "当前用户登录后自动显示托盘图标")
@@ -113,11 +116,20 @@ func Run(opts Options) error {
 		// Status polling → icon/tooltip/menu text.
 		go func() {
 			last := State(-1)
+			lastPin := ""
 			for {
 				st := c.State()
-				if st != last {
+				pin := c.Pin()
+				if st != last || pin != lastPin {
 					refresh(c, itemPause)
-					last = st
+					if itemPin != nil {
+						if pin != "" {
+							itemPin.SetTitle("配对码：" + pin)
+						} else {
+							itemPin.SetTitle("配对码：未共享")
+						}
+					}
+					last, lastPin = st, pin
 				}
 				select {
 				case <-ctx.Done():

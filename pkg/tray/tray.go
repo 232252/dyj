@@ -45,9 +45,19 @@ const (
 
 // statusResponse is the slice of GET /admin/api/status the tray needs.
 type statusResponse struct {
-	Accepting bool   `json:"accepting"`
-	Queued    int    `json:"queued"`
-	Version   string `json:"version"`
+	Accepting      bool             `json:"accepting"`
+	Queued         int              `json:"queued"`
+	Version        string           `json:"version"`
+	PairingEnabled bool             `json:"pairing_enabled"`
+	Printers       []struct {
+		Name string `json:"name"`
+	} `json:"printers"`
+}
+
+// pairingResponse is GET /admin/api/pairing (loopback has full access).
+type pairingResponse struct {
+	PIN       string `json:"pin"`
+	RemainSec int    `json:"remain_sec"`
 }
 
 // Controller drives the tray: it polls status, exposes the current
@@ -59,6 +69,7 @@ type Controller struct {
 	mu     sync.Mutex
 	state  State
 	queued int
+	pin    string
 }
 
 // NewController builds a controller for opts.
@@ -90,6 +101,13 @@ func (c *Controller) Queued() int {
 	return c.queued
 }
 
+// Pin reports the current pairing code ("" when not sharing).
+func (c *Controller) Pin() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.pin
+}
+
 // Poll refreshes state once. Exported for tests; PollLoop calls it.
 func (c *Controller) Poll(ctx context.Context) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.opts.AdminURL+"/admin/api/status", nil)
@@ -118,6 +136,40 @@ func (c *Controller) Poll(ctx context.Context) {
 	} else {
 		c.setState(StatePaused, sr.Queued)
 	}
+	// Pairing code: only meaningful while printers are shared; the PIN is
+	// loopback-readable (tray runs on the machine it guards).
+	if sr.PairingEnabled && len(sr.Printers) > 0 {
+		c.pollPin(ctx)
+	} else {
+		c.setPin("")
+	}
+}
+
+func (c *Controller) pollPin(ctx context.Context) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.opts.AdminURL+"/admin/api/pairing", nil)
+	if err != nil {
+		return
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return
+	}
+	var pr pairingResponse
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
+	if err != nil || json.Unmarshal(body, &pr) != nil {
+		return
+	}
+	c.setPin(pr.PIN)
+}
+
+func (c *Controller) setPin(pin string) {
+	c.mu.Lock()
+	c.pin = pin
+	c.mu.Unlock()
 }
 
 func (c *Controller) setState(s State, queued int) {
