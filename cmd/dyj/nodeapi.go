@@ -188,9 +188,28 @@ func (n *node) apiScan(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadGateway, "mDNS scan failed: "+err.Error())
 		return
 	}
-	own := n.ownUUIDs()
-	out := make([]scanEntry, 0, len(found))
-	seen := map[string]bool{}
+	out := scanEntries(found, n.ownUUIDs())
+	for i := range out {
+		if addr := firstReachable(out[i].Addrs, out[i].Port); addr != "" {
+			out[i].Reachable = true
+		}
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(map[string]any{"services": out})
+}
+
+// scanEntries turns discovered services into add-printer rows: it drops
+// non-IPP wire noise and this machine's own instances, then merges the raw
+// and reference-client views of the same printer.
+//
+// The merge key is the instance label + port ONLY. The SRV target differs
+// per interface (the ${IFACE} naming in discovery), so including it in the
+// key split one physical printer into one row per interface — research/15
+// D-1. Same label+port on one link means the same printer: instance-name
+// conflicts are renamed away at announce time (RFC 6762 §9).
+func scanEntries(found []discovery.Found, own map[string]bool) []scanEntry {
+	byKey := map[string]*scanEntry{}
+	ordered := []*scanEntry{}
 	for _, f := range found {
 		// The reference-client path surfaces non-IPP services that merely
 		// coexist on the wire; only actual _ipp._tcp instances (or dyj
@@ -208,11 +227,6 @@ func (n *node) apiScan(w http.ResponseWriter, r *http.Request) {
 		if i := strings.Index(label, "._ipp"); i > 0 {
 			label = label[:i]
 		}
-		dedupeKey := strings.ToLower(strings.TrimSuffix(label, ".")) + "|" + strings.ToLower(strings.TrimSuffix(f.Host, ".")) + "|" + fmt.Sprint(f.Port)
-		if seen[dedupeKey] {
-			continue // raw + reference client both saw it
-		}
-		seen[dedupeKey] = true
 		e := scanEntry{
 			Instance: f.Instance,
 			Host:     strings.TrimSuffix(f.Host, "."),
@@ -226,13 +240,35 @@ func (n *node) apiScan(w http.ResponseWriter, r *http.Request) {
 		if e.Name == "" {
 			e.Name = f.Instance
 		}
-		if addr := firstReachable(f.Addrs, f.Port); addr != "" {
-			e.Reachable = true
+		key := strings.ToLower(strings.TrimSuffix(label, ".")) + "|" + fmt.Sprint(f.Port)
+		if prev, ok := byKey[key]; ok {
+			prev.Addrs = unionAddrs(prev.Addrs, e.Addrs)
+			continue
 		}
-		out = append(out, e)
+		byKey[key] = &e
+		ordered = append(ordered, &e)
 	}
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	_ = json.NewEncoder(w).Encode(map[string]any{"services": out})
+	out := make([]scanEntry, 0, len(ordered))
+	for _, e := range ordered {
+		out = append(out, *e)
+	}
+	return out
+}
+
+// unionAddrs appends b's addresses to a without duplicates.
+func unionAddrs(a, b []string) []string {
+	seen := make(map[string]bool, len(a))
+	for _, v := range a {
+		seen[v] = true
+	}
+	for _, v := range b {
+		if v == "" || seen[v] {
+			continue
+		}
+		seen[v] = true
+		a = append(a, v)
+	}
+	return a
 }
 
 // ownUUIDs collects the local per-printer UUIDs + mDNS host so the scan

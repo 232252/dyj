@@ -24,6 +24,7 @@
 | [`12-windows-acceptance-2026-09-30.md`](12-windows-acceptance-2026-09-30.md) | **附录 G**：v0.2 后 Windows 物理机验收（wingdi 真驱动无纸链路、跨平台客户端矩阵、管理页鉴权；发现的 TLS 中文主机名崩溃与多网卡 mDNS 缺口及修复）；含 10.126.126.2 交接 runbook | ✅ Lead 实测 |
 | [`13-zero-config-redesign.md`](13-zero-config-redesign.md) | **v0.3 详细设计**：单程序角色向导（共享本机打印机 / 添加网络打印机）、4 位码配对与 URI 路径 token 鉴权、接收端自动装系统队列（WPS 直接可见）、进程内热生效、多打印机模型；可观测性契约（结构化事件日志、文件日志、24 项检查点表、doctor 客户端扩展、故障树）；P0–P3 阶段与验收标准 | ✅ 已实施（v0.3 交付；其技术章节继续有效，产品设计部分被 14 取代） |
 | [`14-minimal-two-mode-redesign.md`](14-minimal-two-mode-redesign.md) | **v0.4 详细设计（界面极简重构）**：v0.3 界面体检（7 项侧栏/8 路由 → 4 路由无侧栏、角色即主页）、服务端/客户端双状态页面线框与元素- API-检查点映射、零设置自动化行为规格（11 项）、文案禁用词与人话映射、检查点增量（UI/DIAG）、改动映射与验收标准 | ✅ 设计产出（决策见 [ADR-0011](../adr/0011-minimal-two-mode-ui.md)，待实施） |
+| [`15-discovery-cross-subnet-mesh.md`](15-discovery-cross-subnet-mesh.md) | **附录 H**：发现域诊断 —— "没有发现共享打印机"跨网段（mesh/VPN）根因分层（mDNS 链路本地边界 / 产品无手动地址入口 GAP-1 / el 旧构建 GAP-2）、真机一手证据（LAN 发现正常、mesh 单播 IPP 可用）、修复方案设计（P0 el 升级 + P1 按地址添加 + P2 已知节点重发现；本轮只设计不改码） | ✅ Lead 实测（**待实施**：P1 进 v0.4.1） |
 
 ## 三句话结论
 

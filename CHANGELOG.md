@@ -3,7 +3,32 @@
 All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/); versioning: semver.
 
-## [Unreleased]
+## [0.4.1] — 2026-09-30
+
+### Added
+- **Add a printer by address (research/15 P1)**: the client page has a manual
+  entry block below the scan list (also in the empty state) — type the other
+  computer's address (`192.168.1.20:6631`, bare host defaults to 6631, `[IPv6]`
+  accepted) plus the optional 4-digit pairing code. This is the only way to add
+  a printer when the two machines are connected only via a mesh/VPN overlay:
+  mDNS is link-local and can never cross subnets, but pairing and printing are
+  plain unicast. The queue URI echoes the address you entered (pair proxy
+  already did; now reachable from the UI).
+- Wrong-PIN attempts during pairing no longer trigger the admin-token banner
+  (the share side's 401 passthrough was indistinguishable from a stale
+  admin token; `pair` is now excluded from the 401 broadcast).
+
+### Fixed
+- **Scan listed one printer per network interface (research/15 D-1)**: the raw
+  and reference mDNS browsing paths report the same service under different
+  per-interface SRV targets, and the dedupe key included that host — one
+  physical printer showed up as 2+ rows. The merge key is now instance label +
+  port, and both views' addresses are unioned before the reachability probe.
+- **Pairing dialog auto-connect no longer depends on the PIN component's
+  value setter** (`connect(code)` takes the code directly; the `dyj-complete`
+  event no longer passes the event object into the connect handler).
+
+## [0.4.0] — 2026-09-30
 
 ### Changed
 - **Minimal two-mode UI (v0.4, ADR-0011 / research/14)**: the admin console is

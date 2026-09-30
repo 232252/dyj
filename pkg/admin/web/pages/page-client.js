@@ -44,6 +44,12 @@ class DyjPageClient extends HTMLElement {
   dyj-page-client h2 { font-size: var(--dyj-fs-l); margin: 22px 0 6px; }
   dyj-page-client .spin { color: var(--dyj-text-dim); }
   dyj-page-client .empty { color: var(--dyj-text-dim); }
+  dyj-page-client .manual { margin-top: 18px; border-top: 1px solid var(--dyj-border); padding-top: 14px; }
+  dyj-page-client .manual .mrow { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  dyj-page-client .manual input { flex: 1 1 180px; padding: 9px 12px; border: 1px solid var(--dyj-border);
+    border-radius: var(--dyj-radius); background: none; color: inherit; font: inherit; }
+  dyj-page-client .manual input:focus { outline: none; border-color: var(--dyj-primary); }
+  dyj-page-client .manual input#mpin { flex: 0 1 140px; }
   dyj-page-client .okline { margin: 6px 0; }
   dyj-page-client .badline { margin: 6px 0; color: var(--dyj-danger); }
   dyj-page-client .nav { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
@@ -139,6 +145,45 @@ class DyjPageClient extends HTMLElement {
       this.#services = null;
       this.#scan();
     });
+    this.#renderManual(body);
+  }
+
+  // 按地址添加（research/15 P1）：mDNS 只覆盖同一 WiFi/路由器，两台电脑只靠
+  // mesh/虚拟网相连时扫不到，但配对/打印走单播完全可用。填对方地址 +
+  // （dyj 共享时）4 位配对码即可；普通网络打印机不用填码。
+  #renderManual(body) {
+    const box = document.createElement('div');
+    box.className = 'manual';
+    box.innerHTML = `
+      <p class="sub">${t('client_manual_hint')}</p>
+      <div class="mrow">
+        <input id="maddr" type="text" placeholder="${t('client_manual_placeholder')}"
+          autocomplete="off" spellcheck="false">
+        <input id="mpin" type="text" inputmode="numeric" maxlength="4"
+          placeholder="${t('client_manual_pin_short')}" autocomplete="off">
+        <dyj-button id="madd" variant="secondary">${t('client_manual_add')}</dyj-button>
+      </div>
+      <p class="sub" id="mmsg"></p>`;
+    body.append(box);
+    const addr = box.querySelector('#maddr');
+    const pin = box.querySelector('#mpin');
+    const submit = () => {
+      const msg = box.querySelector('#mmsg');
+      const parsed = parseAddress(addr.value);
+      if (!parsed) {
+        msg.textContent = t('client_manual_invalid');
+        addr.focus();
+        return;
+      }
+      this.#begin({
+        host: parsed.host, port: parsed.port, name: parsed.host, instance: parsed.host,
+        need_pin: pin.value.trim() !== '', pin: pin.value.trim(), path: '/ipp/print',
+      });
+    };
+    box.querySelector('#madd').addEventListener('click', submit);
+    for (const el of [addr, pin]) el.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter') submit();
+    });
   }
 
   // ---- flow: pair (PIN dialog) → install → done ----
@@ -159,8 +204,10 @@ class DyjPageClient extends HTMLElement {
         </div>`;
       const pinEl = body.querySelector('#pin');
       const msg = body.querySelector('#msg');
-      const connect = async () => {
-        const pin = pinEl.value;
+      // code 可空：来自输入框（dyj-complete/连接按钮）时读 pinEl.value；
+      // 按地址添加时直接传用户已填的码，不再绕道组件 setter。
+      const connect = async (code) => {
+        const pin = code ?? pinEl.value;
         if (pin.length !== 4) {
           msg.textContent = t('client_pair_hint');
           pinEl.focusFirst();
@@ -186,9 +233,14 @@ class DyjPageClient extends HTMLElement {
           }
         }
       };
-      body.querySelector('#connect').addEventListener('click', connect);
-      pinEl.addEventListener('dyj-complete', connect);
+      body.querySelector('#connect').addEventListener('click', () => connect());
+      pinEl.addEventListener('dyj-complete', () => connect());
       body.querySelector('#cancel').addEventListener('click', () => this.#abort());
+      if (s.pin) {
+        // 按地址添加时码已随地址一起填过：直接连，不再弹一次输入。
+        connect(s.pin);
+        return;
+      }
       pinEl.focusFirst();
       return;
     }
@@ -322,3 +374,30 @@ class DyjPageClient extends HTMLElement {
 }
 
 customElements.define('dyj-page-client', DyjPageClient);
+
+// parseAddress("192.168.1.20:6631" | "mypc.local" | "[::1]:6631") → {host, port}。
+// 缺端口按 dyj 默认 6631；纯数值校验放宽到主机名，只挡明显的空白/中文输入。
+function parseAddress(raw) {
+  let v = (raw || '').trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+  if (!v) return null;
+  let host = '';
+  let port = 6631;
+  const m6 = v.match(/^\[([^\]]+)\](?::(\d+))?$/);
+  if (m6) {
+    host = m6[1];
+    if (m6[2]) port = Number(m6[2]);
+  } else {
+    const i = v.lastIndexOf(':');
+    if (i >= 0) {
+      const p = v.slice(i + 1);
+      if (!/^\d+$/.test(p) || Number(p) < 1 || Number(p) > 65535) return null;
+      host = v.slice(0, i);
+      port = Number(p);
+    } else {
+      host = v;
+    }
+  }
+  if (!host) return null;
+  if (!host.includes(':') && !/^[a-zA-Z0-9._-]+$/.test(host)) return null;
+  return { host, port };
+}

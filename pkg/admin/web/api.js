@@ -38,7 +38,8 @@ async function request(path, { method = 'GET', body } = {}) {
   let data = null;
   try { data = await res.json(); } catch { /* non-JSON body */ }
   if (!res.ok) {
-    if (res.status === 401) window.dispatchEvent(new CustomEvent('dyj-unauthorized'));
+    // 配对码输错时共享端透传 401，与管理令牌失效无关，不触发令牌横幅。
+    if (res.status === 401 && path !== 'pair') window.dispatchEvent(new CustomEvent('dyj-unauthorized'));
     const err = new ApiError(data?.error || 'http_' + res.status, res.status);
     err.data = data; // structured body (e.g. retry_after_sec) for callers
     throw err;

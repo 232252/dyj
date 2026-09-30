@@ -19,12 +19,19 @@
 ## 症状 1：接收端扫描不到任何打印机
 
 - **先看**：接收端管理页 → 添加打印机（事件 `scan.result`）；共享端 `mdns.announce`。
+- **先判定**：两端是否在**同一二层广播域**（同一 WiFi/同一路由器 LAN 口）。mDNS 是
+  链路本地组播，**只有 mesh/VPN 相连（如 10.126.126.x）不属于"同一网络"**，跨网段
+  扫不到是协议边界，不是故障——分析与修复设计见
+  [research/15](research/15-discovery-cross-subnet-mesh.md)。
 - **原因与处理**：
-  1. 两台设备不在同一网段 / 路由器开了 AP 隔离 → 换同一 WiFi。
+  1. 两台设备不在同一网段 / 只经 mesh-VPN 相连 / 路由器开了 AP 隔离 → 换同一 WiFi；
+     mesh-only 场景等"按地址添加"入口（research/15 方案 P1）。
   2. 共享端防火墙拦 UDP 5353 → `dyj doctor` 的 firewall 检查给出 netsh 命令（三 profile 都要放行）。
   3. 多网卡机器广播走错网卡 → `dyj list-interfaces` + `-iface` 指定（Linux 的 doctor
      `mdns-egress` 检查会直接 FAIL；Windows 受平台限制只能跨机验证）。
   4. 共享端根本没共享 → 管理页状态页看"正在共享的打印机"是否为空。
+  5. 共享端是旧构建（无 `dyj=1`/`pair=1` TXT 标记）→ UI 会显示为"普通打印机"且
+     配对协议不匹配 → 先升级共享端二进制（如 el 的 9/29 旧 v0.2，research/12 §3）。
 
 ## 症状 2：扫到了但列表标"不可达"
 
