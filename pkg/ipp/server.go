@@ -28,6 +28,7 @@ const (
 	StatusErrorDocumentAccess         int16 = 0x0412
 	StatusErrorNotPossible            int16 = 0x0503
 	StatusErrorOperationNotSupported  int16 = 0x0501
+	StatusErrorNotAcceptingJobs       int16 = 0x0506
 )
 
 // Server is the HTTP(S) transport around the IPP operation handlers.

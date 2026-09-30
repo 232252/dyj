@@ -201,6 +201,10 @@ type Printer struct {
 	URIs         []string
 	Port         int
 
+	// Key is the slug identifying this printer inside a Router ("" for the
+	// classic single-printer setup): /ipp/print/<key> routes here.
+	Key string
+
 	DocumentFormats []string
 	Media           []string
 	ColorSupported  bool
