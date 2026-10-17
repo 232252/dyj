@@ -1,4 +1,4 @@
-module github.com/sq199/dyj
+module github.com/232252/dyj
 
 go 1.26.4
 

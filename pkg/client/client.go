@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sq199/dyj/pkg/attributes"
+	"github.com/232252/dyj/pkg/attributes"
 )
 
 // StatusOK is the successful-ok status code (RFC 8011 appendix B).

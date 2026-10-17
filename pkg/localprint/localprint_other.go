@@ -5,7 +5,7 @@ package localprint
 import (
 	"fmt"
 
-	"github.com/sq199/dyj/pkg/driver/cups"
+	"github.com/232252/dyj/pkg/driver/cups"
 )
 
 // List maps the CUPS queue set (lpstat -p) onto the platform-independent

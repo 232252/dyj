@@ -30,7 +30,7 @@ import (
 	"os"
 	"sync"
 
-	"github.com/sq199/dyj/pkg/attributes"
+	"github.com/232252/dyj/pkg/attributes"
 )
 
 // Re-exported tags. The values live in pkg/attributes; these aliases exist so

@@ -23,10 +23,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sq199/dyj/pkg/discovery"
-	"github.com/sq199/dyj/pkg/doctor"
-	"github.com/sq199/dyj/pkg/localprint"
-	"github.com/sq199/dyj/pkg/sysqueue"
+	"github.com/232252/dyj/pkg/attributes"
+	"github.com/232252/dyj/pkg/client"
+	"github.com/232252/dyj/pkg/discovery"
+	"github.com/232252/dyj/pkg/doctor"
+	"github.com/232252/dyj/pkg/localprint"
+	"github.com/232252/dyj/pkg/sysqueue"
 )
 
 func (n *node) extraAPIs() map[string]http.Handler {
@@ -171,31 +173,307 @@ type scanEntry struct {
 	Path      string `json:"path"`
 	Reachable bool   `json:"reachable"`
 	RTTms     int    `json:"rtt_ms"`
+	// Known is set when this row was rediscovered from a printer this
+	// machine already added (research/15 P2). The UI pins those rows.
+	Known bool `json:"known,omitempty"`
 }
 
-// apiScan browses _ipp._tcp on the LAN (USE-1/2). dyj shares carry the
-// dyj=1/pair=1 TXT marks; own instances are filtered out.
+// apiScan browses _ipp._tcp on the LAN (USE-1/2) and, in parallel, probes
+// printers this machine already added (research/15 P2). dyj shares carry
+// the dyj=1/pair=1 TXT marks; own instances are filtered out.
+//
+// A browse failure with nothing found is still a 200 and an empty list.
+// The client page's empty state is the manual-address path, and the
+// previous 502 ("mDNS scan failed") hid that path behind a jargon error
+// exactly when the two machines are not on the same broadcast domain.
 func (n *node) apiScan(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		w.Header().Set("Allow", "GET")
 		writeErr(w, http.StatusMethodNotAllowed, "GET only")
 		return
 	}
-	ifaces, _ := discovery.SelectInterfaces(nil)
-	found, err := discovery.Browse(ifaces, 3*time.Second)
-	n.log.Info("scan.result", "found", len(found), "err", err)
-	if err != nil && len(found) == 0 {
-		writeErr(w, http.StatusBadGateway, "mDNS scan failed: "+err.Error())
-		return
-	}
+	var (
+		found     []discovery.Found
+		browseErr error
+		known     []scanEntry
+		probed    int
+		alive     int
+	)
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		ifaces, _ := discovery.SelectInterfaces(nil)
+		found, browseErr = discovery.Browse(ifaces, 3*time.Second)
+	}()
+	go func() {
+		defer wg.Done()
+		known, probed, alive = n.probeKnownNodes(2 * time.Second)
+	}()
+	wg.Wait()
+	n.log.Info("scan.result", "found", len(found), "err", browseErr)
+	n.log.Info("scan.known", "probed", probed, "alive", alive)
+
 	out := scanEntries(found, n.ownUUIDs())
 	for i := range out {
 		if addr := firstReachable(out[i].Addrs, out[i].Port); addr != "" {
 			out[i].Reachable = true
 		}
 	}
+	out = pinKnown(out, known)
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(map[string]any{"services": out})
+}
+
+// probeKnownNodes asks every previously added share side whether it still
+// speaks IPP. The probe is Get-Printer-Attributes, never a bare TCP dial:
+// mesh/VPN overlays complete the handshake on ports that have no listener
+// and then send nothing (research/12 §4), which would pin dead rows.
+func (n *node) probeKnownNodes(timeout time.Duration) (alive []scanEntry, probed, nAlive int) {
+	if n == nil || n.added == nil {
+		return nil, 0, 0
+	}
+	type key struct {
+		host string
+		port int
+		path string
+	}
+	seen := map[key]addedPrinter{}
+	var order []key
+	for _, a := range n.added.list() {
+		if a.ServerHost == "" || a.ServerPort <= 0 {
+			continue
+		}
+		k := key{strings.ToLower(strings.Trim(a.ServerHost, "[]")), a.ServerPort, a.URIPath}
+		if _, ok := seen[k]; ok {
+			continue
+		}
+		seen[k] = a
+		order = append(order, k)
+	}
+	if len(order) > 16 {
+		order = order[:16]
+	}
+	probed = len(order)
+	if probed == 0 {
+		return nil, 0, 0
+	}
+	type result struct {
+		i  int
+		e  scanEntry
+		ok bool
+	}
+	ch := make(chan result, probed)
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 4)
+	for i, k := range order {
+		wg.Add(1)
+		go func(i int, a addedPrinter) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			pr := probeIPP(a.ServerHost, a.ServerPort, a.URIPath, timeout)
+			if !pr.Alive {
+				ch <- result{i: i}
+				return
+			}
+			name := a.PrinterName
+			if name == "" {
+				name = a.ServerName
+			}
+			if name == "" {
+				name = pr.Name
+			}
+			if name == "" {
+				name = a.ServerHost
+			}
+			path := a.URIPath
+			if path == "" {
+				path = "/ipp/print"
+			}
+			if !strings.HasPrefix(path, "/") {
+				path = "/" + path
+			}
+			// A live token path can be reinstalled as-is. HTTP 401 means
+			// the share side is up and the old pairing is dead, so the
+			// row must ask for a new code.
+			paired := strings.Contains(path, "/p/")
+			ch <- result{i: i, ok: true, e: scanEntry{
+				Instance:  name,
+				Host:      strings.Trim(a.ServerHost, "[]"),
+				Port:      a.ServerPort,
+				Addrs:     []string{strings.Trim(a.ServerHost, "[]")},
+				Name:      name,
+				IsDyj:     paired || pr.Revoked,
+				NeedPIN:   pr.Revoked,
+				Path:      path,
+				Reachable: true,
+				Known:     true,
+			}}
+		}(i, seen[k])
+	}
+	wg.Wait()
+	close(ch)
+	slots := make([]scanEntry, probed)
+	okn := make([]bool, probed)
+	for r := range ch {
+		if r.ok {
+			slots[r.i] = r.e
+			okn[r.i] = true
+		}
+	}
+	for i, ok := range okn {
+		if ok {
+			alive = append(alive, slots[i])
+			nAlive++
+		}
+	}
+	return alive, probed, nAlive
+}
+
+// pinKnown moves rediscovered printers to the front of the scan list.
+// A known address that the browse already returned is marked and not
+// duplicated; a known address the browse missed (mesh/VPN, no multicast)
+// is inserted as its own row.
+func pinKnown(scanned, known []scanEntry) []scanEntry {
+	if len(known) == 0 {
+		return scanned
+	}
+	used := map[int]bool{}
+	front := make([]scanEntry, 0, len(known))
+	for _, k := range known {
+		matched := -1
+		for i, s := range scanned {
+			if used[i] {
+				continue
+			}
+			if sameEndpoint(s, k) {
+				matched = i
+				break
+			}
+		}
+		if matched >= 0 {
+			s := scanned[matched]
+			s.Known = true
+			used[matched] = true
+			front = append(front, s)
+			continue
+		}
+		k.Known = true
+		front = append(front, k)
+	}
+	rest := make([]scanEntry, 0, len(scanned))
+	for i, s := range scanned {
+		if !used[i] {
+			rest = append(rest, s)
+		}
+	}
+	return append(front, rest...)
+}
+
+// sameEndpoint reports whether two scan rows are the same printer reached
+// by a shared address. Ports must match; names alone do not, because two
+// offices can both call a printer "HP".
+func sameEndpoint(a, b scanEntry) bool {
+	if a.Port == 0 || a.Port != b.Port {
+		return false
+	}
+	if hostMatch(a.Host, b.Host) {
+		return true
+	}
+	for _, addr := range a.Addrs {
+		if hostMatch(addr, b.Host) {
+			return true
+		}
+		for _, addr2 := range b.Addrs {
+			if hostMatch(addr, addr2) {
+				return true
+			}
+		}
+	}
+	for _, addr := range b.Addrs {
+		if hostMatch(addr, a.Host) {
+			return true
+		}
+	}
+	return false
+}
+
+func hostMatch(a, b string) bool {
+	a = strings.ToLower(strings.Trim(strings.TrimSuffix(a, "."), "[]"))
+	b = strings.ToLower(strings.Trim(strings.TrimSuffix(b, "."), "[]"))
+	return a != "" && a == b
+}
+
+// ippProbe is one application-layer Get-Printer-Attributes outcome.
+// Alive is true only when the peer spoke IPP, or rejected the paired
+// path with HTTP 401 (the share side is up; the token is not).
+type ippProbe struct {
+	Alive   bool
+	Revoked bool
+	Name    string
+	Status  int
+}
+
+// probeIPP performs Get-Printer-Attributes. timeout bounds the whole HTTP
+// exchange so a mesh fake-handshake cannot pin the scan.
+func probeIPP(host string, port int, path string, timeout time.Duration) ippProbe {
+	host = strings.Trim(host, "[]")
+	if host == "" || port <= 0 {
+		return ippProbe{}
+	}
+	if timeout <= 0 {
+		timeout = 2 * time.Second
+	}
+	if path == "" {
+		path = "/ipp/print"
+	}
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	uri := fmt.Sprintf("ipp://%s%s", net.JoinHostPort(host, strconv.Itoa(port)), path)
+	c, err := client.Parse(uri, "dyj")
+	if err != nil {
+		return ippProbe{}
+	}
+	c.HTTP.Timeout = timeout
+	msg, err := c.GetPrinterAttributes("printer-name")
+	if err != nil {
+		if code := httpStatusFromClientErr(err); code == http.StatusUnauthorized {
+			return ippProbe{Alive: true, Revoked: true, Status: code}
+		}
+		return ippProbe{}
+	}
+	name := ""
+	if g := msg.Group(attributes.TagPrinterAttributes); g != nil {
+		name = attributes.GroupFirstString(g, "printer-name")
+	}
+	return ippProbe{Alive: true, Name: name, Status: http.StatusOK}
+}
+
+// httpStatusFromClientErr pulls the status out of client.Client's
+// "HTTP 401 from ..." errors. Other failures return 0.
+func httpStatusFromClientErr(err error) int {
+	if err == nil {
+		return 0
+	}
+	const marker = "HTTP "
+	s := err.Error()
+	i := strings.Index(s, marker)
+	if i < 0 {
+		return 0
+	}
+	n := 0
+	for _, r := range s[i+len(marker):] {
+		if r < '0' || r > '9' {
+			break
+		}
+		n = n*10 + int(r-'0')
+		if n > 999 {
+			return 0
+		}
+	}
+	return n
 }
 
 // scanEntries turns discovered services into add-printer rows: it drops
@@ -513,30 +791,35 @@ type addedPrinterStatus struct {
 }
 
 // addedStatus classifies one added printer: missing (system queue gone),
-// offline (share side unreachable), revoked (share side answered 401) or
-// ok. Anything inconclusive stays ok — the diagnostics page is the place
-// for deeper answers, this list must stay cheap.
+// offline (share side did not speak IPP), revoked (share side answered
+// 401) or ok. Reachability is an IPP Get-Printer-Attributes, not a TCP
+// dial — a mesh fake-handshake would otherwise report "ok". Anything
+// inconclusive stays ok; the diagnostics page is for deeper answers.
 func addedStatus(a addedPrinter) string {
-	if ok, err := sysqueue.Exists(a.QueueName); err == nil && !ok {
+	ok, err := sysqueue.Exists(a.QueueName)
+	queueKnown := err == nil
+	probed := a.ServerHost != "" && a.ServerPort > 0
+	var pr ippProbe
+	if probed {
+		pr = probeIPP(a.ServerHost, a.ServerPort, a.URIPath, 2*time.Second)
+	}
+	return classifyAdded(ok, queueKnown, probed, pr)
+}
+
+// classifyAdded is the pure half of addedStatus so the mesh false-positive
+// cases can be tested without a system print queue.
+func classifyAdded(queueOK, queueKnown, probed bool, pr ippProbe) string {
+	if queueKnown && !queueOK {
 		return "missing"
 	}
-	if a.ServerHost == "" || a.ServerPort <= 0 {
+	if !probed {
 		return "ok"
 	}
-	addr := net.JoinHostPort(a.ServerHost, strconv.Itoa(a.ServerPort))
-	conn, err := net.DialTimeout("tcp", addr, 800*time.Millisecond)
-	if err != nil {
+	if !pr.Alive {
 		return "offline"
 	}
-	conn.Close()
-	if a.URIPath != "" {
-		client := &http.Client{Timeout: 3 * time.Second}
-		if resp, err := client.Get("http://" + addr + a.URIPath); err == nil {
-			resp.Body.Close()
-			if resp.StatusCode == http.StatusUnauthorized {
-				return "revoked"
-			}
-		}
+	if pr.Revoked {
+		return "revoked"
 	}
 	return "ok"
 }

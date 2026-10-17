@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/sq199/dyj/pkg/driver/cups"
+	"github.com/232252/dyj/pkg/driver/cups"
 )
 
 // lpadminPath resolves the tool once (absolute path — the exec contract of

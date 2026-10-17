@@ -78,7 +78,7 @@ func launchctl(args ...string) error {
 func systemdUnit(exe string) string {
 	return fmt.Sprintf(`[Unit]
 Description=dyj LAN printer sharing (IPP Everywhere + mDNS)
-Documentation=https://github.com/sq199/dyj
+Documentation=https://github.com/232252/dyj
 After=network-online.target
 Wants=network-online.target
 

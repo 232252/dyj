@@ -1,10 +1,16 @@
 package main
 
 import (
+	"bytes"
+	"encoding/binary"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"testing"
+	"time"
 
-	"github.com/sq199/dyj/pkg/discovery"
+	"github.com/232252/dyj/pkg/attributes"
+	"github.com/232252/dyj/pkg/discovery"
 )
 
 func TestScanEntriesMergesPerInterfaceViews(t *testing.T) {
@@ -80,4 +86,150 @@ func TestUnionAddrs(t *testing.T) {
 	if want := []string{"a", "b", "c"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("got %v want %v", got, want)
 	}
+}
+
+func TestPinKnownDedupesAndPrepends(t *testing.T) {
+	scanned := []scanEntry{
+		{Name: "other", Host: "other.local", Port: 6631, Addrs: []string{"192.168.1.9"}},
+		{Name: "el", Host: "el.local", Port: 6631, Addrs: []string{"192.168.110.214", "10.2.3.29"}, IsDyj: true, NeedPIN: true},
+	}
+	known := []scanEntry{
+		// same printer, reached by an address the browse already listed
+		{Name: "el-saved", Host: "192.168.110.214", Port: 6631, Reachable: true, Known: true},
+		// mesh address the browse cannot see
+		{Name: "mesh", Host: "10.126.126.1", Port: 6631, Reachable: true, Known: true, IsDyj: true},
+		// different port must not collapse into the LAN row
+		{Name: "el-tls", Host: "192.168.110.214", Port: 6632, Reachable: true, Known: true},
+	}
+	got := pinKnown(scanned, known)
+	if len(got) != 4 {
+		t.Fatalf("len = %d, want 4: %+v", len(got), got)
+	}
+	if got[0].Name != "el" || !got[0].Known || !got[0].NeedPIN {
+		t.Errorf("merged row lost browse fields: %+v", got[0])
+	}
+	if got[1].Name != "mesh" || !got[1].Known || !got[1].Reachable {
+		t.Errorf("mesh row = %+v", got[1])
+	}
+	if got[2].Port != 6632 || !got[2].Known {
+		t.Errorf("distinct port not kept: %+v", got[2])
+	}
+	if got[3].Name != "other" || got[3].Known {
+		t.Errorf("unrelated row = %+v", got[3])
+	}
+}
+
+func TestPinKnownEmptyIsIdentity(t *testing.T) {
+	in := []scanEntry{{Name: "a", Port: 6631}}
+	got := pinKnown(in, nil)
+	if !reflect.DeepEqual(got, in) {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestClassifyAdded(t *testing.T) {
+	cases := []struct {
+		name       string
+		queueOK    bool
+		queueKnown bool
+		probed     bool
+		pr         ippProbe
+		want       string
+	}{
+		{"queue gone", false, true, true, ippProbe{Alive: true}, "missing"},
+		{"no address stored", true, true, false, ippProbe{}, "ok"},
+		{"ipp silent", true, true, true, ippProbe{}, "offline"},
+		{"token revoked", true, true, true, ippProbe{Alive: true, Revoked: true, Status: 401}, "revoked"},
+		{"ipp ok", true, true, true, ippProbe{Alive: true, Name: "el"}, "ok"},
+		{"queue query failed stays inconclusive", false, false, false, ippProbe{}, "ok"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := classifyAdded(tc.queueOK, tc.queueKnown, tc.probed, tc.pr); got != tc.want {
+				t.Errorf("got %q want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestProbeIPPAliveRevokedAndSilent(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ipp/print", func(w http.ResponseWriter, r *http.Request) {
+		writeTestIPP(w, "office")
+	})
+	mux.HandleFunc("/p/dead/ipp/print", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	})
+	mux.HandleFunc("/silent", func(w http.ResponseWriter, r *http.Request) {
+		hj, ok := w.(http.Hijacker)
+		if !ok {
+			return
+		}
+		conn, _, err := hj.Hijack()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		time.Sleep(2 * time.Second) // peer accepted TCP and then said nothing
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	host, port := splitTestHost(t, srv.URL)
+
+	ok := probeIPP(host, port, "/ipp/print", time.Second)
+	if !ok.Alive || ok.Revoked || ok.Name != "office" {
+		t.Errorf("live probe = %+v", ok)
+	}
+	rev := probeIPP(host, port, "/p/dead/ipp/print", time.Second)
+	if !rev.Alive || !rev.Revoked || rev.Status != http.StatusUnauthorized {
+		t.Errorf("revoked probe = %+v", rev)
+	}
+	silent := probeIPP(host, port, "/silent", 200*time.Millisecond)
+	if silent.Alive {
+		t.Errorf("silent handshake must not count as alive: %+v", silent)
+	}
+}
+
+func splitTestHost(t *testing.T, rawURL string) (string, int) {
+	t.Helper()
+	u := rawURL
+	u = u[len("http://"):]
+	host, portStr, ok := cutHostPort(u)
+	if !ok {
+		t.Fatalf("bad test url %q", rawURL)
+	}
+	var port int
+	for _, r := range portStr {
+		port = port*10 + int(r-'0')
+	}
+	return host, port
+}
+
+func cutHostPort(hostport string) (string, string, bool) {
+	i := len(hostport) - 1
+	for i >= 0 && hostport[i] != ':' {
+		i--
+	}
+	if i <= 0 {
+		return "", "", false
+	}
+	return hostport[:i], hostport[i+1:], true
+}
+
+func writeTestIPP(w http.ResponseWriter, name string) {
+	var b bytes.Buffer
+	b.Write([]byte{2, 0, 0, 0})
+	_ = binary.Write(&b, binary.BigEndian, int32(1))
+	b.WriteByte(attributes.TagOperationAttributes)
+	_ = attributes.WriteAttributes(&b, []attributes.Attribute{
+		attributes.Text(attributes.TagCharset, "attributes-charset", "utf-8"),
+		attributes.Text(attributes.TagNaturalLang, "attributes-natural-language", "en-us"),
+	})
+	b.WriteByte(attributes.TagPrinterAttributes)
+	_ = attributes.WriteAttributes(&b, []attributes.Attribute{
+		attributes.Name("printer-name", name),
+	})
+	b.WriteByte(attributes.TagEndOfAttributes)
+	w.Header().Set("Content-Type", "application/ipp")
+	_, _ = w.Write(b.Bytes())
 }

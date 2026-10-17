@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sq199/dyj/pkg/ipp"
+	"github.com/232252/dyj/pkg/ipp"
 )
 
 // fakeSpool records admin-API actions.

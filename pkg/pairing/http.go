@@ -13,7 +13,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/sq199/dyj/pkg/ipp"
+	"github.com/232252/dyj/pkg/ipp"
 )
 
 // SharedPrinter is one printer a successful pairing unlocks.

@@ -5,14 +5,12 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"net"
-	"net/http"
 	"os"
 	"path/filepath"
 	"time"
 
-	"github.com/sq199/dyj/pkg/doctor"
-	"github.com/sq199/dyj/pkg/sysqueue"
+	"github.com/232252/dyj/pkg/doctor"
+	"github.com/232252/dyj/pkg/sysqueue"
 )
 
 // cmdDoctor runs the diagnostics and prints them human-readable
@@ -109,9 +107,7 @@ func runClientChecks(stateDir string) []doctor.Check {
 		return []doctor.Check{{Name: "client", Level: doctor.LevelInfo,
 			Detail: "本机没有添加过网络打印机"}}
 	}
-	client := &http.Client{Timeout: 3 * time.Second}
 	for _, a := range added {
-		base := fmt.Sprintf("http://%s", net.JoinHostPort(a.ServerHost, fmt.Sprint(a.ServerPort)))
 		// queue exists?
 		if ok, err := sysqueue.Exists(a.QueueName); err != nil {
 			out = append(out, doctor.Check{Name: "client-queue-exists", Level: doctor.LevelWarn,
@@ -125,35 +121,31 @@ func runClientChecks(stateDir string) []doctor.Check {
 			out = append(out, doctor.Check{Name: "client-queue-exists", Level: doctor.LevelOK,
 				Detail: fmt.Sprintf("系统队列 %s 存在", a.QueueName)})
 		}
-		// server reachable?
-		conn, err := net.DialTimeout("tcp", net.JoinHostPort(a.ServerHost, fmt.Sprint(a.ServerPort)), 2*time.Second)
-		if err != nil {
-			out = append(out, doctor.Check{Name: "client-uri-reachable", Level: doctor.LevelFail,
-				Detail: fmt.Sprintf("共享端 %s:%d 不可达（对方关机/换网或 IP 变了）", a.ServerHost, a.ServerPort),
-				Fix:    "在 dyj 管理页 → 添加打印机 重新扫描并重装"})
+		// Application-layer reachability. A TCP dial is not evidence: mesh
+		// overlays complete the handshake on ports with no listener
+		// (research/12 §4) and would mark a dead share side "可达".
+		if a.ServerHost == "" || a.ServerPort <= 0 {
 			continue
 		}
-		conn.Close()
+		pr := probeIPP(a.ServerHost, a.ServerPort, a.URIPath, 2*time.Second)
+		if !pr.Alive {
+			out = append(out, doctor.Check{Name: "client-uri-reachable", Level: doctor.LevelFail,
+				Detail: fmt.Sprintf("共享端 %s:%d 没有响应打印请求（对方关机、地址变了，或中间网络只完成了空连接）", a.ServerHost, a.ServerPort),
+				Fix:    "打开添加页会自动重试以前添加过的地址；仍没有的话，用「按地址添加」填现在的地址"})
+			continue
+		}
 		out = append(out, doctor.Check{Name: "client-uri-reachable", Level: doctor.LevelOK,
-			Detail: fmt.Sprintf("共享端 %s:%d 可达", a.ServerHost, a.ServerPort)})
-		// token still valid? (the router answers 401 for revoked tokens)
-		if a.URIPath != "" {
-			resp, err := client.Get(base + a.URIPath)
-			if err == nil {
-				resp.Body.Close()
-				switch resp.StatusCode {
-				case http.StatusOK:
-					out = append(out, doctor.Check{Name: "client-token-valid", Level: doctor.LevelOK,
-						Detail: "配对仍然有效"})
-				case http.StatusUnauthorized:
-					out = append(out, doctor.Check{Name: "client-token-valid", Level: doctor.LevelFail,
-						Detail: "配对已被共享端撤销（或服务端重置），打印会失败",
-						Fix:    "在共享端管理页查看新配对码，本机重新配对并重装队列"})
-				default:
-					out = append(out, doctor.Check{Name: "client-token-valid", Level: doctor.LevelWarn,
-						Detail: fmt.Sprintf("共享端返回 HTTP %d（服务可能在启动中）", resp.StatusCode)})
-				}
-			}
+			Detail: fmt.Sprintf("共享端 %s:%d 能响应打印请求", a.ServerHost, a.ServerPort)})
+		if a.URIPath == "" {
+			continue
+		}
+		if pr.Revoked {
+			out = append(out, doctor.Check{Name: "client-token-valid", Level: doctor.LevelFail,
+				Detail: "配对已被共享端撤销（或服务端重置），打印会失败",
+				Fix:    "在共享端管理页查看新配对码，本机重新配对并重装队列"})
+		} else {
+			out = append(out, doctor.Check{Name: "client-token-valid", Level: doctor.LevelOK,
+				Detail: "配对仍然有效"})
 		}
 	}
 	return out

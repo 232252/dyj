@@ -46,7 +46,8 @@ Linux 侧沿用 file 后端；10.126.126.2（Windows，真实打印机宿主）�
 - el 上常驻的 dyj 进程是 9 月 29 日 07:13 的**旧构建**（无管理页：banner 无
   admin 行，`/admin/` 落到 IPP 信息页）。建议以 v0.2+ 二进制重启
   （需 root：`systemctl`/`kill` 后重跑原命令加 `-backend file` 原参数即可）。
-- 作业页"份数"列恒为 0（job 1 实为 -copies 2）——纯展示小缺陷，待修。
+- 作业页"份数"列恒为 0（省略 `copies` 属性时存成 0；job 1 实为 -copies 2）——
+  v0.4.2 已按 IPP 默认记为 1，界面把历史记录里的 0 也显示成 1。
 - 客户端发 PDF 前可先读 `document-format-supported` 本地预检，替代服务端
   fidelity 拒绝（体验优化，非缺陷）。
 - `service install` 与 Win11 设置-IPP 添加两项待管理员会话补测。

@@ -101,7 +101,16 @@ class DyjPageClient extends HTMLElement {
     } catch (e) {
       this.#services = [];
       if (!this.#flow) {
-        body.innerHTML = `<div class="empty">${errMessage(e)}</div>`;
+        // 扫描失败也不能把「按地址添加」藏掉：mesh/VPN 上组播本来就会失败，
+        // 地址框是唯一入口。
+        body.innerHTML = `
+          <div class="empty">${errMessage(e)}</div>
+          <div class="nav"><dyj-button id="rescan">${t('client_rescan')}</dyj-button></div>`;
+        body.querySelector('#rescan').addEventListener('click', () => {
+          this.#services = null;
+          this.#scan();
+        });
+        this.#renderManual(body);
       }
     }
   }
@@ -137,6 +146,12 @@ class DyjPageClient extends HTMLElement {
           ? (s.need_pin ? t('client_badge_dyj_pin') : t('client_badge_dyj_open'))
           : t('client_badge_plain');
         row.append(tag);
+        if (s.known) {
+          const known = document.createElement('span');
+          known.className = 'tag';
+          known.textContent = t('client_badge_known');
+          row.append(known);
+        }
         row.addEventListener('click', () => this.#begin(s));
         return row;
       }));
@@ -245,9 +260,14 @@ class DyjPageClient extends HTMLElement {
       return;
     }
     // 免配对（dyj 开放共享 / 普通网络打印机）：直接安装。
+    const path = s.path || '/ipp/print';
     this.#flow.paired = {
       server_name: s.name || s.instance,
-      printers: [{ name: s.name || s.instance, ipp_url: `ipp://${s.host}:${s.port}${s.path || '/ipp/print'}` }],
+      printers: [{
+        name: s.name || s.instance,
+        ipp_url: ippURL(s.host, s.port, path),
+        uri_path: path,
+      }],
     };
     await this.#install();
   }
@@ -377,6 +397,13 @@ customElements.define('dyj-page-client', DyjPageClient);
 
 // parseAddress("192.168.1.20:6631" | "mypc.local" | "[::1]:6631") → {host, port}。
 // 缺端口按 dyj 默认 6631；纯数值校验放宽到主机名，只挡明显的空白/中文输入。
+// ippURL brackets IPv6 hosts. A bare "ipp://::1:6631/..." is not a host.
+function ippURL(host, port, path) {
+  const h = host.includes(':') && !host.startsWith('[') ? `[${host}]` : host;
+  const p = path && path.startsWith('/') ? path : '/' + (path || 'ipp/print');
+  return `ipp://${h}:${port}${p}`;
+}
+
 function parseAddress(raw) {
   let v = (raw || '').trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '');
   if (!v) return null;

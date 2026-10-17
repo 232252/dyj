@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sq199/dyj/pkg/driver"
+	"github.com/232252/dyj/pkg/driver"
 )
 
 func TestValidToken(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"compress/gzip"
 	"io"
 
-	"github.com/sq199/dyj/pkg/render"
+	"github.com/232252/dyj/pkg/render"
 )
 
 type page = render.Page

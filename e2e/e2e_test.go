@@ -19,11 +19,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sq199/dyj/pkg/attributes"
-	"github.com/sq199/dyj/pkg/client"
-	"github.com/sq199/dyj/pkg/driver"
-	"github.com/sq199/dyj/pkg/ipp"
-	"github.com/sq199/dyj/pkg/spooler"
+	"github.com/232252/dyj/pkg/attributes"
+	"github.com/232252/dyj/pkg/client"
+	"github.com/232252/dyj/pkg/driver"
+	"github.com/232252/dyj/pkg/ipp"
+	"github.com/232252/dyj/pkg/spooler"
 )
 
 type fixture struct {

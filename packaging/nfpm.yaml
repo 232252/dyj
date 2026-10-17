@@ -26,7 +26,7 @@ description: |
   Shares locally attached printers over the network via IPP Everywhere
   + mDNS so Windows, macOS and Linux clients print without installing
   any driver.
-homepage: https://github.com/sq199/dyj
+homepage: https://github.com/232252/dyj
 license: Apache-2.0
 epoch: 1
 

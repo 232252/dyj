@@ -68,10 +68,10 @@ type Device struct {
 
 // Limits of the abuse countermeasures; fields left zero take the defaults.
 type Limits struct {
-	PINTTL         time.Duration // rolling PIN lifetime (default 10m)
-	FailWindow     time.Duration // failure window per IP (default 10m)
-	MaxFails       int           // failures inside the window before lockout (default 10)
-	LockDuration   time.Duration // lockout length (default 30m)
+	PINTTL       time.Duration // rolling PIN lifetime (default 10m)
+	FailWindow   time.Duration // failure window per IP (default 10m)
+	MaxFails     int           // failures inside the window before lockout (default 10)
+	LockDuration time.Duration // lockout length (default 30m)
 }
 
 const (
@@ -160,7 +160,14 @@ func (s *Store) Current() (pin string, remainSec int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.rotateIfDueLocked()
-	return s.pin, int(time.Until(s.pinExpiry).Seconds() + 0.999)
+	// Remain follows the same clock as rotation. time.Until would ignore
+	// an injected clock and, once the wall clock passes a test fixture,
+	// report a negative TTL so the PIN looks expired when it is not.
+	remain := s.pinExpiry.Sub(s.now())
+	if remain < 0 {
+		remain = 0
+	}
+	return s.pin, int(remain.Seconds() + 0.999)
 }
 
 // Rotate invalidates the current PIN immediately.

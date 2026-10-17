@@ -33,7 +33,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sq199/dyj/pkg/ipp"
+	"github.com/232252/dyj/pkg/ipp"
 )
 
 // SpoolControl is the slice of the spooler the admin API drives.

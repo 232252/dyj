@@ -5,20 +5,20 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/sq199/dyj/pkg/attributes"
+	"github.com/232252/dyj/pkg/attributes"
 )
 
 // Operation ids, RFC 8011 §4 / IANA registry.
 const (
-	OpPrintJob            uint16 = 0x0002
-	OpValidateJob         uint16 = 0x0004
-	OpCreateJob           uint16 = 0x0005
-	OpSendDocument        uint16 = 0x0006
-	OpCancelJob           uint16 = 0x0008
-	OpGetJobAttributes    uint16 = 0x0009
-	OpGetJobs             uint16 = 0x000A
+	OpPrintJob             uint16 = 0x0002
+	OpValidateJob          uint16 = 0x0004
+	OpCreateJob            uint16 = 0x0005
+	OpSendDocument         uint16 = 0x0006
+	OpCancelJob            uint16 = 0x0008
+	OpGetJobAttributes     uint16 = 0x0009
+	OpGetJobs              uint16 = 0x000A
 	OpGetPrinterAttributes uint16 = 0x000B
-	OpIdentifyPrinter     uint16 = 0x003C
+	OpIdentifyPrinter      uint16 = 0x003C
 )
 
 // dispatch routes a decoded request to its operation handler.
@@ -298,6 +298,10 @@ func (s *Server) jobInfo(msg *attributes.Message) JobInfo {
 			info.Template[name] = v
 		}
 	}
+	// RFC 8011 default is 1. Leaving this at 0 made the recent-prints
+	// column show "0" for every job that omitted the attribute
+	// (research/12 §3).
+	info.Copies = 1
 	if copies, ok := attributes.GroupInt(msg.Job(), "copies"); ok && copies > 0 {
 		info.Copies = int(copies)
 	}

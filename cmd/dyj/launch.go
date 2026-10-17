@@ -19,7 +19,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/sq199/dyj/pkg/service"
+	"github.com/232252/dyj/pkg/service"
 )
 
 // cmdLaunch is the no-argument entry: read the persisted role and run the
@@ -70,15 +70,25 @@ func cmdOpen(args []string) error {
 		}
 	}
 	client := &http.Client{Timeout: 800 * time.Millisecond}
-	for p := base; p < base+10; p++ {
-		resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/admin/api/status", p))
-		if err == nil {
-			resp.Body.Close()
-			if resp.StatusCode == http.StatusOK {
-				openBrowser(fmt.Sprintf("http://127.0.0.1:%d/admin", p))
-				return nil
+	// The installer starts the service and then runs `dyj open`. The
+	// listener is not up in the same instant, so retry for a few seconds
+	// before telling the user nothing is running.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		for p := base; p < base+10; p++ {
+			resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/admin/api/status", p))
+			if err == nil {
+				resp.Body.Close()
+				if resp.StatusCode == http.StatusOK {
+					openBrowser(fmt.Sprintf("http://127.0.0.1:%d/admin", p))
+					return nil
+				}
 			}
 		}
+		if time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(250 * time.Millisecond)
 	}
 	return errors.New("dyj 未在运行：先启动 dyj（开始菜单/桌面图标，或运行 dyj）")
 }

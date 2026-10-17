@@ -80,6 +80,7 @@ export const strings = {
   client_badge_dyj_pin: 'dyj 共享 · 需要配对码',
   client_badge_dyj_open: 'dyj 共享 · 免配对',
   client_badge_plain: '普通网络打印机',
+  client_badge_known: '以前添加过',
   client_unreachable: '暂时不可达',
   client_flow_title: '添加「{name}」',
   client_pair_hint: '输入服务端电脑上显示的 4 位配对码：',

@@ -58,7 +58,8 @@ Filename: "reg"; Parameters: "add HKLM\Software\Microsoft\Windows\CurrentVersion
 ; --- register + start the service with current settings
 Filename: "{app}\dyj.exe"; Parameters: "service install"; Flags: runhidden; StatusMsg: "注册 dyj 服务…"
 Filename: "{app}\dyj.exe"; Parameters: "service start"; Flags: runhidden; StatusMsg: "启动 dyj 服务…"
-Filename: "{app}\dyj-tray.exe"; Description: "启动 dyj（托盘 + 管理页向导）"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\dyj-tray.exe"; Description: "启动 dyj 托盘"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\dyj.exe"; Parameters: "open"; Description: "立即打开 dyj"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
 Filename: "taskkill"; Parameters: "/IM dyj-tray.exe /F"; Flags: runhidden; RunOnceId: "KillTray"

@@ -28,8 +28,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sq199/dyj/pkg/driver"
-	"github.com/sq199/dyj/pkg/render"
+	"github.com/232252/dyj/pkg/driver"
+	"github.com/232252/dyj/pkg/render"
 )
 
 // Queue is one print queue reported by lpstat.
