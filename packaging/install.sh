@@ -1,6 +1,6 @@
 #!/bin/sh
 # dyj installer for Linux/macOS headless and desktop hosts.
-#   curl -fsSL https://raw.githubusercontent.com/sq199/dyj/main/packaging/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/232252/dyj/main/packaging/install.sh | sh
 # or pin a version:
 #   curl -fsSL .../install.sh | sh -s -- v0.2.0
 #
@@ -9,7 +9,7 @@
 # It never touches the firewall itself — see the printed hints.
 set -eu
 
-REPO="sq199/dyj"
+REPO="232252/dyj"
 VERSION="${1:-latest}"
 PREFIX="${DYJ_PREFIX:-/usr/local}"
 

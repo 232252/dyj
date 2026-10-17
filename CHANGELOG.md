@@ -3,6 +3,44 @@
 All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/); versioning: semver.
 
+## [0.4.2] — 2026-10-17
+
+### Added
+- **Known-printer rediscovery (research/15 P2)**: opening the client page
+  probes every previously added share address with IPP Get-Printer-Attributes
+  (not a TCP dial — mesh/VPN overlays complete a handshake on ports that have
+  no listener) and pins the ones that still answer at the top of the scan
+  list, marked "以前添加过". A revoked pairing stays visible and asks for a
+  new code; a live token path can be reinstalled directly. Logged as
+  `scan.known`.
+- Installer finish page offers a checked-by-default "立即打开 dyj" (`dyj open`).
+  `dyj open` retries for a few seconds so it still finds a service that has
+  only just started.
+
+### Fixed
+- **Pairing code boxes rendered empty**: `dyj-pin-input` called `t()` in its
+  constructor without importing it. The custom element upgrade threw, the
+  shadow tree stayed empty, and the dialog looked blank. Same failure class
+  as the old `dyj-diagnostic` constructor throw; it was not specific to an
+  embedded browser.
+- Client scan no longer answers 502 with the text "mDNS scan failed" when
+  browsing errors. That string hid the manual-address form and leaked a
+  banned word onto the client page. An empty list (plus the address form)
+  is the mesh/VPN path; the error stays in the `scan.result` log.
+- A scan error in the page still shows the address form and a rescan button.
+- Receiver status (`added-printers`) and `dyj doctor --client` judge the
+  share side by an IPP exchange. A TCP-open/application-silent peer is
+  offline, not "ok" / "可达".
+- Recent-prints "copies" no longer shows 0 when the job omitted the
+  attribute. The IPP default is 1 (research/12 §3).
+- PIN remaining time uses the same clock as PIN rotation, so an injected
+  clock cannot report a negative TTL.
+
+### Changed
+- Go module path and packaging homepage/download URLs are
+  `github.com/232252/dyj`, matching the repository. Historical research
+  notes that record the original Windows profile path are unchanged.
+
 ## [0.4.1] — 2026-09-30
 
 ### Added
@@ -167,17 +205,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/); versioning: semver.
   shipping the icon work).
 
 ### Notes
-- **v0.3 zero-config redesign approved as ADR-0010** (design only, not yet
-  implemented): first-run web wizard with two roles — "share local printers"
-  (auto-enumerate, one-click share) and "add a network printer" (auto-scan,
-  4-digit PIN pairing, automatic system queue install so the printer shows up
-  in WPS/Word with dyj out of the print path); device tokens carried in the
-  IPP URI path (loopback exempt, LAN default-deny), in-process config reload,
-  multi-printer model, and an observability contract (structured event logs
-  with file rotation, a 24-checkpoint table, client-side doctor checks, a
-  symptom-to-fix fault tree). Phased P0–P3 plan with acceptance criteria in
-  `docs/research/13-zero-config-redesign.md`; breaks LAN clients without a
-  token once P1 ships.
+- The items in **Added** above are what shipped in 0.3.0 (ADR-0010). An
+  earlier draft of this note said the redesign was "design only"; that
+  sentence was already false when 0.3.0 was tagged. The design record
+  remains `docs/research/13-zero-config-redesign.md`. LAN clients without
+  a device token receive 401.
 
 ## [0.2.0] — 2026-09-29
 

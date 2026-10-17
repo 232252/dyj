@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sq199/dyj/pkg/attributes"
-	"github.com/sq199/dyj/pkg/client"
-	"github.com/sq199/dyj/pkg/discovery"
-	"github.com/sq199/dyj/pkg/render"
+	"github.com/232252/dyj/pkg/attributes"
+	"github.com/232252/dyj/pkg/client"
+	"github.com/232252/dyj/pkg/discovery"
+	"github.com/232252/dyj/pkg/render"
 )
 
 // resolveTarget turns "first printer on the LAN" into a URI: an empty

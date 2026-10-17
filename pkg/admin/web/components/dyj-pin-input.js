@@ -1,6 +1,12 @@
 // dyj-pin-input：4 位配对码输入（v0.4 research/14 §3.4）。四个单字格，
 // 数字键盘（inputmode=numeric）、自动跳格、退格回退、整段粘贴分发、
 // 输满第 4 位发 dyj-complete。.value 取当前码，clear() 清空并聚焦首位。
+//
+// t() 必须在本模块导入。构造函数里调用未定义的 t 会抛 ReferenceError，
+// 自定义元素升级失败，格子渲染成空（与当年 dyj-toggle / dyj-diagnostic
+// 构造函数抛错后整块空白是同一类故障，不是某个内嵌浏览器的特例）。
+import { t } from '../i18n/index.js';
+
 const DIGITS = 4;
 
 class DyjPinInput extends HTMLElement {

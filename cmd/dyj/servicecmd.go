@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/sq199/dyj/pkg/service"
+	"github.com/232252/dyj/pkg/service"
 )
 
 // cmdService manages the OS service integration.

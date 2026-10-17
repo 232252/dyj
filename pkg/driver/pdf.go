@@ -27,7 +27,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/sq199/dyj/pkg/render"
+	"github.com/232252/dyj/pkg/render"
 )
 
 // pdfRasterizerOverride lets environments inject a stub pdftoppm (the

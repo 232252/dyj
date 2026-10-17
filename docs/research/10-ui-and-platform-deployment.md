@@ -2,10 +2,11 @@
 
 > 调研时间：2026-09-29（Windows 部分）/ 2026-09-29（Linux、macOS 部分补齐）。
 > 范围：面向普通用户的图形界面（布局与控件）、三平台安装器、服务/防火墙/自启动注册、分发渠道。
-> 结论将沉淀为 ADR 后再动工；本文保留完整论据。
-> 仓库现状基线：纯 CLI（`cmd/dyj`）+ 三平台服务化（`pkg/service`：Windows SCM / systemd /
-> launchd），单二进制 8–9 MB 纯 Go 静态，`serve.go` 的 mDNS TXT 已广播 `AdminURL` 字段
-> （cmd/dyj/serve.go:195）但尚无管理页可打开。
+>
+> **状态（2026-10-17）**：结论已落成 ADR-0008 / ADR-0009，并在 v0.2 交付
+> （Web 管理页、Windows 托盘、cups 后端、deb/rpm、Inno、Homebrew formula）。
+> v0.4 又把管理页收成 4 路由（ADR-0011）。下文「尚无管理页」「待 ADR」是
+> **动工前快照**，行号不要当成当前代码位置。cups 后端 gap 已关闭。
 
 ## 0. 结论速览
 

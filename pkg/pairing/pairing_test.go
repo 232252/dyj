@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sq199/dyj/pkg/logx"
+	"github.com/232252/dyj/pkg/logx"
 )
 
 type fakeClock struct{ now time.Time }
@@ -28,7 +28,13 @@ func newTestStore(t *testing.T, path string, lim Limits) (*Store, *fakeClock, *b
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Open stamps the first PIN with the wall clock, before the test
+	// clock is installed. Re-base it or a fixture date in the past never
+	// expires relative to that stamp.
 	s.now = func() time.Time { return clock.now }
+	s.mu.Lock()
+	s.rotateLocked("test-clock")
+	s.mu.Unlock()
 	return s, clock, &buf
 }
 

@@ -26,7 +26,7 @@ import (
 
 	"golang.org/x/sys/windows"
 
-	"github.com/sq199/dyj/pkg/render"
+	"github.com/232252/dyj/pkg/render"
 )
 
 // DEVMODE field offsets (x64 and x86 agree here: everything below

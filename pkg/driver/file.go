@@ -10,7 +10,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/sq199/dyj/pkg/render"
+	"github.com/232252/dyj/pkg/render"
 )
 
 // File is the debugging/verification backend: every page lands in the

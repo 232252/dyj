@@ -5,7 +5,7 @@ package main
 import (
 	"golang.org/x/sys/windows"
 
-	"github.com/sq199/dyj/pkg/sysqueue"
+	"github.com/232252/dyj/pkg/sysqueue"
 )
 
 // openBrowser hands the URL to the shell (default browser, no console

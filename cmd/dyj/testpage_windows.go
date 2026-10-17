@@ -9,7 +9,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/sq199/dyj/pkg/driver"
+	"github.com/232252/dyj/pkg/driver"
 )
 
 // printPNGToQueue renders through wingdi — the same GDI path production

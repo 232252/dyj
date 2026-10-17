@@ -27,16 +27,16 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/sq199/dyj/pkg/admin"
-	"github.com/sq199/dyj/pkg/attributes"
-	"github.com/sq199/dyj/pkg/discovery"
-	"github.com/sq199/dyj/pkg/doctor"
-	"github.com/sq199/dyj/pkg/driver"
-	"github.com/sq199/dyj/pkg/ipp"
-	"github.com/sq199/dyj/pkg/logx"
-	"github.com/sq199/dyj/pkg/pairing"
-	"github.com/sq199/dyj/pkg/service"
-	"github.com/sq199/dyj/pkg/spooler"
+	"github.com/232252/dyj/pkg/admin"
+	"github.com/232252/dyj/pkg/attributes"
+	"github.com/232252/dyj/pkg/discovery"
+	"github.com/232252/dyj/pkg/doctor"
+	"github.com/232252/dyj/pkg/driver"
+	"github.com/232252/dyj/pkg/ipp"
+	"github.com/232252/dyj/pkg/logx"
+	"github.com/232252/dyj/pkg/pairing"
+	"github.com/232252/dyj/pkg/service"
+	"github.com/232252/dyj/pkg/spooler"
 )
 
 // runMode tunes the console/UX behavior of one node run.

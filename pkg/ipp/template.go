@@ -9,7 +9,7 @@ package ipp
 import (
 	"fmt"
 
-	"github.com/sq199/dyj/pkg/attributes"
+	"github.com/232252/dyj/pkg/attributes"
 )
 
 // unsupportedAttr is one offender for the unsupported-attributes group.

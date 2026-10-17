@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sq199/dyj/pkg/discovery"
-	"github.com/sq199/dyj/pkg/driver"
+	"github.com/232252/dyj/pkg/discovery"
+	"github.com/232252/dyj/pkg/driver"
 )
 
 // Check is one diagnostic result. Name is a stable id (the UI keys

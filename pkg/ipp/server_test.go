@@ -14,7 +14,7 @@ import (
 	"testing"
 
 	"github.com/phin1x/go-ipp"
-	"github.com/sq199/dyj/pkg/attributes"
+	"github.com/232252/dyj/pkg/attributes"
 )
 
 // encodeGetPrinterAttrs builds a real, RFC 8010 conformant

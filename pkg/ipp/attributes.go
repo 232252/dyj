@@ -1,7 +1,7 @@
 package ipp
 
 import (
-	"github.com/sq199/dyj/pkg/attributes"
+	"github.com/232252/dyj/pkg/attributes"
 )
 
 // This file is the adapter between the transport layer and the single

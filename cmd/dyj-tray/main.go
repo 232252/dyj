@@ -12,8 +12,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/sq199/dyj/pkg/service"
-	"github.com/sq199/dyj/pkg/tray"
+	"github.com/232252/dyj/pkg/service"
+	"github.com/232252/dyj/pkg/tray"
 )
 
 func main() {

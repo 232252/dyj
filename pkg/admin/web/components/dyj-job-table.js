@@ -44,7 +44,7 @@ class DyjJobTable extends HTMLElement {
         <td>${esc(j.user || '—')}</td>
         <td><span class="st st-${esc(j.state_name)}" title="${esc(reasons)}"><span class="dot"></span>${t(stateKey)}</span></td>
         <td>${t('size_kb', { n: j.size_kb ?? 0 })}</td>
-        <td>${j.copies ?? 1}</td>
+        <td>${j.copies > 0 ? j.copies : 1}</td>
         <td>${ageText(seen.get(j.id) ?? Date.now())}</td>
         <td>${ACTIVE.has(j.state_name) ? `<button type="button" class="cancel" data-id="${j.id}">${t('btn_cancel_job')}</button>` : ''}</td>
       </tr>`;

@@ -15,7 +15,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/sq199/dyj/pkg/logx"
+	"github.com/232252/dyj/pkg/logx"
 )
 
 // psQuote single-quotes for PowerShell (embedded quotes double).

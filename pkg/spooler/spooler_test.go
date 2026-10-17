@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sq199/dyj/pkg/driver"
-	"github.com/sq199/dyj/pkg/ipp"
+	"github.com/232252/dyj/pkg/driver"
+	"github.com/232252/dyj/pkg/ipp"
 )
 
 func newGzipWriter(w io.Writer) *gzip.Writer { return gzip.NewWriter(w) }

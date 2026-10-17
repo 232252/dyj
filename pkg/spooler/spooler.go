@@ -31,8 +31,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sq199/dyj/pkg/driver"
-	"github.com/sq199/dyj/pkg/ipp"
+	"github.com/232252/dyj/pkg/driver"
+	"github.com/232252/dyj/pkg/ipp"
 )
 
 // Options configures a Spooler.

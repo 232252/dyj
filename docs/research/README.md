@@ -1,12 +1,39 @@
-# 调研索引（Phase 0）
+# 调研与设计索引
 
-本目录是项目动工前的调研产物。**结论已并入 `docs/adr/`，此处保留完整论据与来源。**
+本目录保留动工前的调研（01–09）、平台与界面研究（10–12），以及已交付版本的
+设计记录（13 = v0.3，14 = v0.4，15 = 跨网段发现）。**产品决策以 `docs/adr/`
+为准。** 下文凡写「已实施」的条目，代码已在对应版本落地；不要再把它们当成
+Phase 0 待办。
 
-> **状态更新（2026-09-29，v0.1 交付后）**：P0 清单 #1、#2、#9、#10、#11 已在实现轮
-> 完成代码级实证（见 `docs/adr/0005`、`0006`、`0007` 与 CHANGELOG）。
-> **#1 的 GUI 实测（Win11 添加打印机）仍待真机验收**——代码路径已被
-> 黄金字节测试 + 独立解码器交叉验证 + 二进制 E2E 覆盖，但 ADR-0004 的 A4
-> （真实 Win11 添加）仍是开放项。#4（AirPrint/URF）已按 ADR-0007 显式降级为"不声明"。
+> **状态（2026-10-17，v0.4.2）**
+>
+> - v0.1–v0.2：IPP 服务端、渲染、管理页、三平台打包已交付。
+> - v0.3：零配置角色向导、4 位码配对、接收端装系统队列、多打印机、可观测性
+>   （调研 13 / ADR-0010）已实施。
+> - v0.4.0：4 路由无侧栏极简界面（调研 14 / ADR-0011）已实施。
+> - v0.4.1：按地址添加、扫描去重（调研 15 P1/P4）已实施。
+> - v0.4.2：已知节点重发现（调研 15 P2）、配对码格子空渲染、mesh 假握手不再
+>   被当成「在线」已实施。
+>
+> **仍须现场人工验收（软件侧不再缺入口，云端 VM 无法代做）**：
+>
+> 1. **Win11 设置里原生「添加打印机」**（P0 #1 / ADR-0004 A4）。代码路径有
+>    黄金字节 + 独立解码器 + E2E；GUI 点击本身要在一台 Windows 11 上做。
+>    步骤：共享端 `dyj` 已在跑 → 客户端「设置 → 蓝牙和其他设备 → 打印机和扫描仪
+>    → 添加设备」或「按 IP 添加」填 `http://<共享端>:6631/ipp/print`（已配对的
+>    队列 URI 在系统队列里；未配对的裸路径会被 401，应走 dyj 客户端页）。
+> 2. **AirPrint / `image/urf`（P0 #4）**。ADR-0007 明确不声明 URF，直到取得
+>    Apple 规范原文或 `ippeveprinter` + `dns-sd -B/-L` 的一手 TXT。手机/iPad
+>    直接发现 **不在承诺范围**。
+> 3. **el（Debian 192.168.110.214 / mesh 10.126.126.1）仍是 2026-09-29 的
+>    v0.2 旧构建**（调研 12 §3、调研 15 GAP-2）。root 停旧进程，用当前
+>    linux-amd64 二进制按原参数（当时是 `-backend file`）重启。未升级前不要
+>    在 UI 上对它走配对。
+> 4. **10.126.126.2（真实打印机宿主）** 仍无凭据。交接步骤见
+>    [调研 12 §4](12-windows-acceptance-2026-09-30.md)。mesh 对「没有监听的端口」
+>    会做 TCP 假握手，探活必须用 IPP，不能用裸 TCP。
+> 5. **`dyj service install` 与防火墙规则** 需要管理员会话，安装器已包含；
+>    绿色运行需人工执行调研 12 §4 的 `netsh` 两条。
 
 ## 文档
 
@@ -19,12 +46,14 @@
 | [`05-environment-probe.md`](05-environment-probe.md) | **附录 C**：本机真实环境实测（网络/打印机/mDNS 占用） | ✅ Lead 实测 |
 | [`06-mdns-coexistence-verified.md`](06-mdns-coexistence-verified.md) | **附录 D**：P0 #3 实证 —— mDNS 与 Chrome 共存**已解除阻塞** | ✅ Lead 实测 |
 | [`07-go-ipp-server-capability.md`](07-go-ipp-server-capability.md) | **附录 E**：`go-ipp` 服务端能力实测 —— **发现属性编码硬缺口** | ✅ Lead 实测 |
-| [`08-independent-review.md`](08-independent-review.md) | **附录 F**：对调研结论的独立复核（含"否决 Rust"的关键论据确认） | ✅ Lead 复核 |
-| [`10-ui-and-platform-deployment.md`](10-ui-and-platform-deployment.md) | **Phase 1 前瞻**：GUI 选型（Web 管理页+可选托盘）、控件组件化、三平台安装/自启/防火墙/签名/分发（Win: Inno+SCM；Linux: nfpm+systemd+avahi；macOS: launchd+brew）；含 `service_unix.go` 修正清单与 cups 后端 gap | ✅ 调研产出（待 ADR 定稿） |
-| [`12-windows-acceptance-2026-09-30.md`](12-windows-acceptance-2026-09-30.md) | **附录 G**：v0.2 后 Windows 物理机验收（wingdi 真驱动无纸链路、跨平台客户端矩阵、管理页鉴权；发现的 TLS 中文主机名崩溃与多网卡 mDNS 缺口及修复）；含 10.126.126.2 交接 runbook | ✅ Lead 实测 |
-| [`13-zero-config-redesign.md`](13-zero-config-redesign.md) | **v0.3 详细设计**：单程序角色向导（共享本机打印机 / 添加网络打印机）、4 位码配对与 URI 路径 token 鉴权、接收端自动装系统队列（WPS 直接可见）、进程内热生效、多打印机模型；可观测性契约（结构化事件日志、文件日志、24 项检查点表、doctor 客户端扩展、故障树）；P0–P3 阶段与验收标准 | ✅ 已实施（v0.3 交付；其技术章节继续有效，产品设计部分被 14 取代） |
-| [`14-minimal-two-mode-redesign.md`](14-minimal-two-mode-redesign.md) | **v0.4 详细设计（界面极简重构）**：v0.3 界面体检（7 项侧栏/8 路由 → 4 路由无侧栏、角色即主页）、服务端/客户端双状态页面线框与元素- API-检查点映射、零设置自动化行为规格（11 项）、文案禁用词与人话映射、检查点增量（UI/DIAG）、改动映射与验收标准 | ✅ 设计产出（决策见 [ADR-0011](../adr/0011-minimal-two-mode-ui.md)，待实施） |
-| [`15-discovery-cross-subnet-mesh.md`](15-discovery-cross-subnet-mesh.md) | **附录 H**：发现域诊断 —— "没有发现共享打印机"跨网段（mesh/VPN）根因分层（mDNS 链路本地边界 / 产品无手动地址入口 GAP-1 / el 旧构建 GAP-2）、真机一手证据（LAN 发现正常、mesh 单播 IPP 可用）、修复方案设计（P0 el 升级 + P1 按地址添加 + P2 已知节点重发现；本轮只设计不改码） | ✅ Lead 实测（**待实施**：P1 进 v0.4.1） |
+| [`08-independent-review.md`](08-independent-review.md) | **附录 F**：对调研结论的独立复核（含"否决 Rust"的关键论据确认）。与 09 不是同一份 | ✅ Lead 复核 |
+| [`09-p0-empirical-verification.md`](09-p0-empirical-verification.md) | **附录 I**：P0 红队实证（wire 字段顺序、enum 宽度）。文首曾误标「附录 F」，与 08 撞名，已改。§9 的代码缺陷已在 v0.1 前修掉（ADR-0005/0006）；§8 里 Win11 GUI / ipptool / Apple 原文仍未取到 | ✅ 红队报告；代码项已关闭 |
+| [`10-ui-and-platform-deployment.md`](10-ui-and-platform-deployment.md) | GUI 选型（Web 管理页 + Windows 托盘）、控件组件化、三平台安装/自启/防火墙/签名/分发（Win: Inno+SCM；Linux: nfpm+systemd+avahi；macOS: launchd+brew） | ✅ 已落地（ADR-0008/0009，v0.2 起；文内行号是动工前快照） |
+| [`11-ui-icon-design-research.md`](11-ui-icon-design-research.md) | 品牌标记、托盘图标、Windows exe 资源、Linux hicolor 图标 | ✅ v0.3 已落地（见 CHANGELOG「Brand identity」）；macOS `.icns` 仍挂起 |
+| [`12-windows-acceptance-2026-09-30.md`](12-windows-acceptance-2026-09-30.md) | **附录 G**：v0.2 后 Windows 物理机验收（wingdi 真驱动无纸链路、跨平台客户端矩阵、管理页鉴权；发现的 TLS 中文主机名崩溃与多网卡 mDNS 缺口及修复）；含 10.126.126.2 交接 runbook。份数列恒为 0 已在 v0.4.2 按 IPP 默认 1 修复 | ✅ Lead 实测 |
+| [`13-zero-config-redesign.md`](13-zero-config-redesign.md) | **v0.3 详细设计**：单程序角色向导、4 位码配对与 URI 路径 token、接收端自动装系统队列、进程内热生效、多打印机；可观测性契约 | ✅ 已实施（v0.3）。产品界面被 14 取代；技术章节继续有效。非目标是「不转发 mDNS」，不是「跨网段完全不能用」 |
+| [`14-minimal-two-mode-redesign.md`](14-minimal-two-mode-redesign.md) | **v0.4 详细设计（界面极简重构）**：7 项侧栏/8 路由 → 4 路由无侧栏、角色即主页、零设置、文案禁用词、诊断导出 | ✅ 已实施（v0.4.0，[ADR-0011](../adr/0011-minimal-two-mode-ui.md)）。§9 开放问题已关闭或标成现场项 |
+| [`15-discovery-cross-subnet-mesh.md`](15-discovery-cross-subnet-mesh.md) | **附录 H**：跨网段扫不到的根因（mDNS 链路本地 / 曾无手动地址 / el 旧构建）。P1 按地址添加、P4 去重、P2 已知节点重发现已实施；P0 el 升级仍是现场运维 | ✅ Lead 实测；代码项已实施，el 升级未做 |
 
 ## 三句话结论
 
@@ -34,9 +63,10 @@
 3. **架构**：**不做驱动栈、不碰 USB 解绑** —— 把 IPP 端点架在"已有打印队列"之上（`driver/winspl`），
    复用系统驱动完成光栅化。既省体积，又**彻底绕开 Ghostscript AGPL 风险**。
 
-## ⚠️ P0 待实证清单（动工前必须做，**不要当成已知事实**）
+## ⚠️ 原 Phase 0 实证清单
 
-按优先级排序。**每一项都必须在写生产代码前用实测回答。**
+这是动工前的问题单，不是当前待办。划掉的项已经用代码或实测回答。
+没划掉的项要么被架构决策取代，要么只能在真机/外部规范上收口（见文首现场清单）。
 
 | # | 待验证问题 | 为什么是 P0 | 建议验证方式 |
 | --- | --- | --- | --- |
@@ -50,7 +80,7 @@
 | **8** | Windows Protected Print Mode (WPPM) 的实际行为 | 官方正文取不到（404），不要断言 | 需权威来源或实测 |
 | ~~9~~ | ~~`go-ipp` 响应编码器为包内私有~~ | ✅ 已实证并超越：**编码与解码均已弃用 go-ipp**（解码器有覆盖 bug），见 [ADR-0005](../adr/0005-single-wire-encoder.md)、[ADR-0006](../adr/0006-own-request-decoder.md) | — |
 | ~~**10**~~ | ~~`go-ipp` 缺少 IPP Everywhere 必需属性~~ | ✅ **已解决**：`pkg/attributes/` 显式 tag 写入器 + 完整属性表已交付，黄金字节测试锁定 | — |
-| ~~**11**~~ | ~~`operations-supported` 1setOf enum 的字节宽度~~ | ✅ **已实证并修正**：RFC 8010 §3.8 强制 **4 字节**（附录 F 红队报告 §5），2 字节版本会让独立解码器失步；黄金测试锁定 | — |
+| ~~**11**~~ | ~~`operations-supported` 1setOf enum 的字节宽度~~ | ✅ **已实证并修正**：RFC 8010 §3.8 强制 **4 字节**（[附录 I](09-p0-empirical-verification.md) 红队报告 §5；附录 F 是 08，不是这份），2 字节版本会让独立解码器失步；黄金测试锁定 | — |
 | ~~**12**~~ | ~~彩色机是否必须声明 `image/jpeg`~~ | ✅ **已按原文落地**：JPEG 在默认声明表中（彩色机 PWG 必需；灰度机转换后同样可打） | — |
 
 ## 来源可靠性说明

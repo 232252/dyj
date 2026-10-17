@@ -22,11 +22,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/sq199/dyj/pkg/attributes"
-	"github.com/sq199/dyj/pkg/discovery"
-	"github.com/sq199/dyj/pkg/driver"
-	"github.com/sq199/dyj/pkg/driver/cups"
-	"github.com/sq199/dyj/pkg/localprint"
+	"github.com/232252/dyj/pkg/attributes"
+	"github.com/232252/dyj/pkg/discovery"
+	"github.com/232252/dyj/pkg/driver"
+	"github.com/232252/dyj/pkg/driver/cups"
+	"github.com/232252/dyj/pkg/localprint"
 )
 
 // serveOptions is the persisted node configuration (service.json). v0.3

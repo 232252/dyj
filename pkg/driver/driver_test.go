@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sq199/dyj/pkg/render"
+	"github.com/232252/dyj/pkg/render"
 )
 
 // pwgBytes builds a 1-page PWG raster document from a generated image.

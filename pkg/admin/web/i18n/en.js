@@ -75,6 +75,7 @@ export const strings = {
   client_badge_dyj_pin: 'dyj share · needs a code',
   client_badge_dyj_open: 'dyj share · no code needed',
   client_badge_plain: 'Regular network printer',
+  client_badge_known: 'Added before',
   client_unreachable: 'unreachable right now',
   client_flow_title: 'Add “{name}”',
   client_pair_hint: 'Type the 4-digit code shown on the server computer:',
