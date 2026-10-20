@@ -48,8 +48,10 @@ cargo-timings/
 /bin/
 /dist/
 *.test
+*.test.exe
 *.out
 vendor/
+.video_agent/
 
 # ---- Node ----
 node_modules/
