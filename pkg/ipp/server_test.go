@@ -24,7 +24,7 @@ import (
 // test must exercise the wire format a real client actually sends (Windows,
 // CUPS, iOS), including an explicitly empty job-attributes group followed by
 // the end-of-attributes tag.
-func encodeGetPrinterAttrs(t *testing.T, requestID int32, requestedAttrs ...string) []byte {
+func encodeGetPrinterAttrs(t testing.TB, requestID int32, requestedAttrs ...string) []byte {
 	t.Helper()
 	var b bytes.Buffer
 
@@ -50,14 +50,14 @@ func encodeGetPrinterAttrs(t *testing.T, requestID int32, requestedAttrs ...stri
 	return b.Bytes()
 }
 
-func writeCharString(t *testing.T, b *bytes.Buffer, tag byte, name, value string) {
+func writeCharString(t testing.TB, b *bytes.Buffer, tag byte, name, value string) {
 	t.Helper()
 	writeCharStringSet(t, b, tag, name, []string{value})
 }
 
 // writeCharStringSet writes attribute-with-one-value plus one additional-value
 // per extra element (RFC 8010 §3.1.3–§3.1.5).
-func writeCharStringSet(t *testing.T, b *bytes.Buffer, tag byte, name string, values []string) {
+func writeCharStringSet(t testing.TB, b *bytes.Buffer, tag byte, name string, values []string) {
 	t.Helper()
 	for i, v := range values {
 		n := name
