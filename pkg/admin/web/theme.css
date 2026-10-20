@@ -86,8 +86,38 @@ main#page code, main#page pre { font-family: var(--dyj-mono); }
   main#page { padding: 16px; }
 }
 
-/* LAN token bar (shown by app.js when the API answers 401) */
-#dyj-token-bar {
+/* 共享页面骨架（server/client 两页一致的列表行与卡片样式）。页面是
+   Light DOM，页面文件里的 <style> 在文档序上晚于本表，同特异性时页面
+   规则仍然胜出 —— 这里只放两边完全一致的盒型。 */
+dyj-page-server .body, dyj-page-client .body {
+  background: var(--dyj-card);
+  border: 1px solid var(--dyj-border);
+  border-radius: var(--dyj-radius);
+  box-shadow: var(--dyj-shadow);
+  padding: 24px;
+}
+dyj-page-server .sub, dyj-page-client .sub { color: var(--dyj-text-dim); margin: 0 0 10px; }
+dyj-page-server .list, dyj-page-client .list {
+  display: flex; flex-direction: column; gap: 8px; margin-top: 10px;
+}
+dyj-page-server .row, dyj-page-client .row {
+  display: flex; align-items: center; padding: 12px 14px;
+  border: 1px solid var(--dyj-border); border-radius: var(--dyj-radius);
+}
+dyj-page-server .row .meta, dyj-page-client .row .meta { flex: 1; min-width: 0; }
+dyj-page-server .row .name, dyj-page-client .row .name { font-weight: 600; }
+dyj-page-server .row .sub2, dyj-page-client .row .sub2 {
+  color: var(--dyj-text-dim); font-size: var(--dyj-fs-s);
+}
+dyj-page-server .spin, dyj-page-client .spin,
+dyj-page-server .empty, dyj-page-client .empty { color: var(--dyj-text-dim); }
+dyj-page-server .foot, dyj-page-client .foot {
+  margin-top: 18px; display: flex; gap: 18px; font-size: var(--dyj-fs-s);
+}
+dyj-page-server .foot a, dyj-page-client .foot a { color: var(--dyj-text-dim); }
+dyj-page-server .foot a:hover, dyj-page-client .foot a:hover { color: var(--dyj-primary); }
+
+/* LAN token bar (shown by app.js when the API answers 401) */#dyj-token-bar {
   position: fixed;
   top: 0; left: 0; right: 0;
   z-index: 800;

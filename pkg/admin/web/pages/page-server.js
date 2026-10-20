@@ -10,6 +10,7 @@ import {
 import { t } from '../i18n/index.js';
 import { showToast } from '../components/dyj-toast.js';
 import { confirmDialog } from '../components/dyj-modal.js';
+import { rowMeta, confirmAction } from '../ui.js';
 import '../components/dyj-button.js';
 import '../components/dyj-job-table.js';
 
@@ -26,16 +27,10 @@ class DyjPageServer extends HTMLElement {
   connectedCallback() {
     this.innerHTML = `
 <style>
-  dyj-page-server .body { background: var(--dyj-card); border: 1px solid var(--dyj-border);
-    border-radius: var(--dyj-radius); box-shadow: var(--dyj-shadow); padding: 24px; }
-  dyj-page-server .sub { color: var(--dyj-text-dim); margin: 0 0 10px; }
-  dyj-page-server .list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
-  dyj-page-server .row { display: flex; align-items: center; gap: 12px; padding: 12px 14px;
-    border: 1px solid var(--dyj-border); border-radius: var(--dyj-radius); }
+  /* .body/.sub/.list/.row 盒型与 .spin/.empty/.foot 在 theme.css 共享；
+     这里只留本页差异（行距、徽章、配对码、设备行、导航）。 */
+  dyj-page-server .row { gap: 12px; }
   dyj-page-server .row.bad { border-color: var(--dyj-danger, #c0392b); }
-  dyj-page-server .row .meta { flex: 1; min-width: 0; }
-  dyj-page-server .row .name { font-weight: 600; }
-  dyj-page-server .row .sub2 { color: var(--dyj-text-dim); font-size: var(--dyj-fs-s); }
   dyj-page-server .badge { font-size: var(--dyj-fs-s); color: var(--dyj-primary);
     border: 1px solid var(--dyj-primary); border-radius: 99px; padding: 1px 8px; }
   dyj-page-server .linklike { margin-top: 10px; font-size: var(--dyj-fs-s); }
@@ -51,11 +46,6 @@ class DyjPageServer extends HTMLElement {
   dyj-page-server .dev .sub2 { color: var(--dyj-text-dim); font-size: var(--dyj-fs-s); }
   dyj-page-server .nav { display: flex; gap: 10px; margin-top: 18px; align-items: center; flex-wrap: wrap; }
   dyj-page-server .nav .grow { flex: 1; }
-  dyj-page-server .foot { margin-top: 18px; display: flex; gap: 18px; font-size: var(--dyj-fs-s); }
-  dyj-page-server .foot a { color: var(--dyj-text-dim); }
-  dyj-page-server .foot a:hover { color: var(--dyj-primary); }
-  dyj-page-server .spin { color: var(--dyj-text-dim); }
-  dyj-page-server .empty { color: var(--dyj-text-dim); }
 </style>
 <div id="root"></div>`;
     this.#onStatus = (ev) => {
@@ -202,13 +192,8 @@ class DyjPageServer extends HTMLElement {
       cb.checked = !p.probe_err; // 默认全选打得开的打印机（虚拟默认隐藏）
       cb.dataset.name = p.name;
       row.append(cb);
-      const meta = document.createElement('div');
-      meta.className = 'meta';
-      meta.innerHTML = `<div class="name"></div><div class="sub2"></div>`;
-      meta.querySelector('.name').textContent = p.name;
-      meta.querySelector('.sub2').textContent = [p.driver,
-        p.probe_err ? t('server_probe_err') + '：' + p.probe_err : ''].filter(Boolean).join(' · ');
-      row.append(meta);
+      row.append(rowMeta(p.name, [p.driver,
+        p.probe_err ? t('server_probe_err') + '：' + p.probe_err : ''].filter(Boolean).join(' · ')));
       if (p.default) {
         const b = document.createElement('span');
         b.className = 'badge';
@@ -281,12 +266,7 @@ class DyjPageServer extends HTMLElement {
     list.replaceChildren(...rows.map((p) => {
       const row = document.createElement('div');
       row.className = 'row';
-      const meta = document.createElement('div');
-      meta.className = 'meta';
-      meta.innerHTML = `<div class="name"></div><div class="sub2"></div>`;
-      meta.querySelector('.name').textContent = p.name;
-      meta.querySelector('.sub2').textContent = p.driver || '';
-      row.append(meta);
+      row.append(rowMeta(p.name, p.driver || ''));
       if (p.default) {
         const b = document.createElement('span');
         b.className = 'badge';
@@ -368,32 +348,19 @@ class DyjPageServer extends HTMLElement {
       box.replaceChildren(...(devices || []).map((d) => {
         const row = document.createElement('div');
         row.className = 'dev';
-        const meta = document.createElement('div');
-        meta.className = 'meta';
-        meta.innerHTML = `<div></div><div class="sub2"></div>`;
-        meta.firstChild.textContent = d.name || d.id.slice(0, 8);
-        meta.querySelector('.sub2').textContent = [
+        row.append(rowMeta(d.name || d.id.slice(0, 8), [
           d.source_ip,
           d.added_at ? new Date(d.added_at).toLocaleString() : '',
-        ].filter(Boolean).join(' · ');
-        row.append(meta);
+        ].filter(Boolean).join(' · ')));
         const btn = document.createElement('dyj-button');
         btn.setAttribute('variant', 'secondary');
         btn.textContent = t('devices_revoke');
-        btn.addEventListener('click', async () => {
-          const ok = await confirmDialog({
-            title: t('devices_revoke_confirm'),
-            body: t('devices_revoke_confirm_body'),
-            confirmText: t('devices_revoke'),
-            danger: true,
-          });
-          if (!ok) return;
-          try {
-            await revokeDevice(d.id);
-            showToast(t('devices_revoked'));
-            this.#loadDevices();
-          } catch (e) { showToast(errMessage(e), 'error'); }
-        });
+        btn.addEventListener('click', () => confirmAction({
+          title: t('devices_revoke_confirm'),
+          body: t('devices_revoke_confirm_body'),
+          confirmText: t('devices_revoke'),
+          done: t('devices_revoked'),
+        }, () => revokeDevice(d.id), () => this.#loadDevices()));
         row.append(btn);
         return row;
       }));
@@ -412,21 +379,14 @@ class DyjPageServer extends HTMLElement {
     } catch { sec.hidden = true; }
   }
 
-  async #cancelJob(id) {
-    const ok = await confirmDialog({
+  #cancelJob(id) {
+    return confirmAction({
       title: t('cancel_confirm_title', { id }),
       body: t('cancel_confirm_body'),
       confirmText: t('btn_cancel_job'),
-      danger: true,
-    });
-    if (!ok) return;
-    try {
-      await cancelJob(id);
-      showToast(t('toast_canceled', { id }));
-    } catch (e) {
-      showToast(t('toast_cancel_failed') + '：' + errMessage(e), 'error');
-    }
-    this.#refreshJobs();
+      done: t('toast_canceled', { id }),
+      fail: t('toast_cancel_failed') + '：',
+    }, () => cancelJob(id), () => this.#refreshJobs());
   }
 
   async #togglePause() {

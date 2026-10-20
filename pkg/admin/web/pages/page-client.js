@@ -8,7 +8,7 @@ import {
 } from '../api.js';
 import { t } from '../i18n/index.js';
 import { showToast } from '../components/dyj-toast.js';
-import { confirmDialog } from '../components/dyj-modal.js';
+import { rowMeta, confirmAction } from '../ui.js';
 import '../components/dyj-button.js';
 import '../components/dyj-pin-input.js';
 
@@ -21,20 +21,14 @@ class DyjPageClient extends HTMLElement {
   connectedCallback() {
     this.innerHTML = `
 <style>
-  dyj-page-client .body { background: var(--dyj-card); border: 1px solid var(--dyj-border);
-    border-radius: var(--dyj-radius); box-shadow: var(--dyj-shadow); padding: 24px; }
-  dyj-page-client .sub { color: var(--dyj-text-dim); margin: 0 0 10px; }
-  dyj-page-client .list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
-  dyj-page-client .row { display: flex; align-items: center; gap: 10px; width: 100%;
-    padding: 12px 14px; border: 1px solid var(--dyj-border); border-radius: var(--dyj-radius);
-    background: none; color: inherit; text-align: left; cursor: pointer; font: inherit; }
+  /* .body/.sub/.list/.row 盒型与 .spin/.empty/.foot 在 theme.css 共享；
+     这里只留本页差异（行是 button、标签色调、按地址添加输入区）。 */
+  dyj-page-client .row { gap: 10px; width: 100%; background: none; color: inherit;
+    text-align: left; cursor: pointer; font: inherit; }
   dyj-page-client .row:hover { border-color: var(--dyj-primary); }
   dyj-page-client .row[disabled] { opacity: .45; cursor: default; }
   dyj-page-client .row.static { cursor: default; }
   dyj-page-client .row.static:hover { border-color: var(--dyj-border); }
-  dyj-page-client .row .meta { flex: 1; }
-  dyj-page-client .row .name { font-weight: 600; }
-  dyj-page-client .row .sub2 { color: var(--dyj-text-dim); font-size: var(--dyj-fs-s); }
   dyj-page-client .tag { font-size: var(--dyj-fs-s); border-radius: 99px; padding: 1px 8px;
     border: 1px solid var(--dyj-border); color: var(--dyj-text-dim); white-space: nowrap; }
   dyj-page-client .tag.dyj { border-color: var(--dyj-primary); color: var(--dyj-primary); }
@@ -42,8 +36,6 @@ class DyjPageClient extends HTMLElement {
   dyj-page-client .tag.warn { border-color: var(--dyj-warning); color: var(--dyj-warning); }
   dyj-page-client .tag.bad { border-color: var(--dyj-danger); color: var(--dyj-danger); }
   dyj-page-client h2 { font-size: var(--dyj-fs-l); margin: 22px 0 6px; }
-  dyj-page-client .spin { color: var(--dyj-text-dim); }
-  dyj-page-client .empty { color: var(--dyj-text-dim); }
   dyj-page-client .manual { margin-top: 18px; border-top: 1px solid var(--dyj-border); padding-top: 14px; }
   dyj-page-client .manual .mrow { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
   dyj-page-client .manual input { flex: 1 1 180px; padding: 9px 12px; border: 1px solid var(--dyj-border);
@@ -53,9 +45,6 @@ class DyjPageClient extends HTMLElement {
   dyj-page-client .okline { margin: 6px 0; }
   dyj-page-client .badline { margin: 6px 0; color: var(--dyj-danger); }
   dyj-page-client .nav { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
-  dyj-page-client .foot { margin-top: 18px; display: flex; gap: 18px; font-size: var(--dyj-fs-s); }
-  dyj-page-client .foot a { color: var(--dyj-text-dim); }
-  dyj-page-client .foot a:hover { color: var(--dyj-primary); }
 </style>
 <div id="scanSec">
   <h1>${t('client_title')}</h1>
@@ -90,6 +79,17 @@ class DyjPageClient extends HTMLElement {
 
   // ---- scan ----
 
+  // 扫描失败/空结果的共同落地页：提示 + 重扫 + 按地址添加入口。
+  #scanFallback(body, msgHtml) {
+    body.innerHTML = `${msgHtml}
+      <div class="nav"><dyj-button id="rescan">${t('client_rescan')}</dyj-button></div>`;
+    body.querySelector('#rescan').addEventListener('click', () => {
+      this.#services = null;
+      this.#scan();
+    });
+    this.#renderManual(body);
+  }
+
   async #scan() {
     if (this.#flow) return;
     const body = this.querySelector('#scanBody');
@@ -100,18 +100,9 @@ class DyjPageClient extends HTMLElement {
       if (!this.#flow) this.#renderScan();
     } catch (e) {
       this.#services = [];
-      if (!this.#flow) {
-        // 扫描失败也不能把「按地址添加」藏掉：mesh/VPN 上组播本来就会失败，
-        // 地址框是唯一入口。
-        body.innerHTML = `
-          <div class="empty">${esc(errMessage(e))}</div>
-          <div class="nav"><dyj-button id="rescan">${t('client_rescan')}</dyj-button></div>`;
-        body.querySelector('#rescan').addEventListener('click', () => {
-          this.#services = null;
-          this.#scan();
-        });
-        this.#renderManual(body);
-      }
+      // 扫描失败也不能把「按地址添加」藏掉：mesh/VPN 上组播本来就会失败，
+      // 地址框是唯一入口。
+      if (!this.#flow) this.#scanFallback(body, `<div class="empty">${esc(errMessage(e))}</div>`);
     }
   }
 
@@ -119,43 +110,37 @@ class DyjPageClient extends HTMLElement {
     const body = this.querySelector('#scanBody');
     const rows = this.#services || [];
     if (!rows.length) {
-      body.innerHTML = `
+      this.#scanFallback(body, `
         <div class="empty">${t('client_none_found')}</div>
-        <div class="empty">${t('client_none_hint')}</div>
-        <div class="nav"><dyj-button id="rescan">${t('client_rescan')}</dyj-button></div>`;
-    } else {
-      body.innerHTML = `
-        <p class="sub">${t('client_pick_hint')}</p>
-        <div class="list" id="list"></div>
-        <div class="nav"><dyj-button id="rescan">${t('client_rescan')}</dyj-button></div>`;
-      const list = body.querySelector('#list');
-      list.replaceChildren(...rows.map((s) => {
-        const row = document.createElement('button');
-        row.type = 'button';
-        row.className = 'row';
-        row.disabled = !s.reachable;
-        const meta = document.createElement('div');
-        meta.className = 'meta';
-        meta.innerHTML = `<div class="name"></div><div class="sub2"></div>`;
-        meta.querySelector('.name').textContent = s.name || s.instance;
-        meta.querySelector('.sub2').textContent = s.reachable ? '' : t('client_unreachable');
-        row.append(meta);
-        const tag = document.createElement('span');
-        tag.className = 'tag' + (s.dyj ? ' dyj' : '');
-        tag.textContent = s.dyj
-          ? (s.need_pin ? t('client_badge_dyj_pin') : t('client_badge_dyj_open'))
-          : t('client_badge_plain');
-        row.append(tag);
-        if (s.known) {
-          const known = document.createElement('span');
-          known.className = 'tag';
-          known.textContent = t('client_badge_known');
-          row.append(known);
-        }
-        row.addEventListener('click', () => this.#begin(s));
-        return row;
-      }));
+        <div class="empty">${t('client_none_hint')}</div>`);
+      return;
     }
+    body.innerHTML = `
+      <p class="sub">${t('client_pick_hint')}</p>
+      <div class="list" id="list"></div>
+      <div class="nav"><dyj-button id="rescan">${t('client_rescan')}</dyj-button></div>`;
+    const list = body.querySelector('#list');
+    list.replaceChildren(...rows.map((s) => {
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'row';
+      row.disabled = !s.reachable;
+      row.append(rowMeta(s.name || s.instance, s.reachable ? '' : t('client_unreachable')));
+      const tag = document.createElement('span');
+      tag.className = 'tag' + (s.dyj ? ' dyj' : '');
+      tag.textContent = s.dyj
+        ? (s.need_pin ? t('client_badge_dyj_pin') : t('client_badge_dyj_open'))
+        : t('client_badge_plain');
+      row.append(tag);
+      if (s.known) {
+        const known = document.createElement('span');
+        known.className = 'tag';
+        known.textContent = t('client_badge_known');
+        row.append(known);
+      }
+      row.addEventListener('click', () => this.#begin(s));
+      return row;
+    }));
     body.querySelector('#rescan').addEventListener('click', () => {
       this.#services = null;
       this.#scan();
@@ -355,12 +340,7 @@ class DyjPageClient extends HTMLElement {
       alist.replaceChildren(...list.map((p) => {
         const row = document.createElement('div');
         row.className = 'row static';
-        const meta = document.createElement('div');
-        meta.className = 'meta';
-        meta.innerHTML = `<div class="name"></div><div class="sub2"></div>`;
-        meta.querySelector('.name').textContent = p.queue_name;
-        meta.querySelector('.sub2').textContent = p.server_name || '';
-        row.append(meta);
+        row.append(rowMeta(p.queue_name, p.server_name || ''));
         const tag = document.createElement('span');
         const key = { ok: 'client_status_ok', offline: 'client_status_offline',
           missing: 'client_status_missing', revoked: 'client_status_revoked' }[p.status]
@@ -372,20 +352,12 @@ class DyjPageClient extends HTMLElement {
         const rm = document.createElement('dyj-button');
         rm.setAttribute('variant', 'secondary');
         rm.textContent = t('client_remove');
-        rm.addEventListener('click', async () => {
-          const yes = await confirmDialog({
-            title: t('client_remove_confirm'),
-            body: t('client_remove_confirm_body', { name: p.queue_name }),
-            confirmText: t('client_remove'),
-            danger: true,
-          });
-          if (!yes) return;
-          try {
-            await removeQueue({ queue_name: p.queue_name });
-            showToast(t('client_removed', { name: p.queue_name }));
-            this.#loadAdded();
-          } catch (e) { showToast(errMessage(e), 'error'); }
-        });
+        rm.addEventListener('click', () => confirmAction({
+          title: t('client_remove_confirm'),
+          body: t('client_remove_confirm_body', { name: p.queue_name }),
+          confirmText: t('client_remove'),
+          done: t('client_removed', { name: p.queue_name }),
+        }, () => removeQueue({ queue_name: p.queue_name }), () => this.#loadAdded()));
         row.append(rm);
         return row;
       }));
