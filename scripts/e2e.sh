@@ -6,7 +6,10 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 WORK=$(mktemp -d)
-trap 'kill $SRV_PID 2>/dev/null || true; rm -rf "$WORK"' EXIT
+# Cleanup must never turn a PASS into a FAIL: wait for the server to
+# actually exit (kill is asynchronous and Windows keeps the log handle
+# locked until then), and tolerate rm failures.
+trap 'if [ -n "${SRV_PID:-}" ]; then kill $SRV_PID 2>/dev/null || true; wait $SRV_PID 2>/dev/null || true; fi; rm -rf "$WORK" 2>/dev/null || true' EXIT
 
 echo "== build =="
 go build -o "$WORK/dyj" ./cmd/dyj
@@ -38,7 +41,7 @@ for i in $(seq 1 100); do
     [ -n "$STATE" ] && break
     sleep 0.1
 done
-[ "$STATE" = "completed" ] || { echo "job did not complete: $(cat "$WORK/server.log" | tail -5)"; exit 1; }
+[ "$STATE" = "completed" ] || { echo "job did not complete:"; tail -5 "$WORK/server.log"; exit 1; }
 
 echo "== verify output =="
 PNG=$(ls "$OUT"/job-*.png 2>/dev/null | head -1)
