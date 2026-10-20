@@ -59,10 +59,10 @@ func TextPages(text string, opt TextOptions) ([]*Page, error) {
 
 	var pages []*Page
 	cur := &layout{
-		page:   newBlankPage(w, h, SGray),
-		ox:     mx, oy: mx,
+		page: newBlankPage(w, h, SGray),
+		ox:   mx, oy: mx,
 		cw: cw, ch: ch,
-		cols:   cols, rows: rows,
+		cols: cols, rows: rows,
 		ascent: face.Ascent * scale,
 	}
 

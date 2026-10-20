@@ -32,23 +32,23 @@ import (
 // DEVMODE field offsets (x64 and x86 agree here: everything below
 // dmFields is 2-byte-aligned until dmCopies).
 const (
-	devModeOffsetFields     = 72 // DWORD dmFields
+	devModeOffsetFields      = 72 // DWORD dmFields
 	devModeOffsetOrientation = 76 // SHORT dmOrientation
 	devModeOffsetPaperSize   = 78 // SHORT dmPaperSize
 	devModeOffsetCopies      = 86 // SHORT dmCopies
 
-	dmOrientation  = 0x00000001
-	dmPaperSize    = 0x00000002
-	dmCopies       = 0x00000100
+	dmOrientation = 0x00000001
+	dmPaperSize   = 0x00000002
+	dmCopies      = 0x00000100
 )
 
 // DMPAPER codes for the media set we advertise.
 var paperCodes = map[string]uint16{
-	"iso_a4":          9,  // DMPAPER_A4
-	"na_letter":       1,  // DMPAPER_LETTER
-	"na_legal":        5,  // DMPAPER_LEGAL
-	"iso_a5":          11, // DMPAPER_A5
-	"na_index-4x6":    70, // DMPAPER_4X6
+	"iso_a4":       9,  // DMPAPER_A4
+	"na_letter":    1,  // DMPAPER_LETTER
+	"na_legal":     5,  // DMPAPER_LEGAL
+	"iso_a5":       11, // DMPAPER_A5
+	"na_index-4x6": 70, // DMPAPER_4X6
 }
 
 // WingDI prints onto a Windows spooler queue by name.
@@ -62,19 +62,19 @@ type WingDI struct {
 func (w *WingDI) Name() string { return "wingdi:" + w.Printer }
 
 var (
-	spool32 = windows.NewLazySystemDLL("winspool.drv")
-	procOpenPrinterW           = spool32.NewProc("OpenPrinterW")
-	procClosePrinter           = spool32.NewProc("ClosePrinter")
-	procDocumentPropertiesW    = spool32.NewProc("DocumentPropertiesW")
-	gdi32                      = windows.NewLazySystemDLL("gdi32.dll")
-	procCreateDCW              = gdi32.NewProc("CreateDCW")
-	procDeleteDC               = gdi32.NewProc("DeleteDC")
-	procGetDeviceCaps          = gdi32.NewProc("GetDeviceCaps")
-	procStartDocW              = gdi32.NewProc("StartDocW")
-	procStartPage              = gdi32.NewProc("StartPage")
-	procEndPage                = gdi32.NewProc("EndPage")
-	procEndDoc                 = gdi32.NewProc("EndDoc")
-	procStretchDIBits          = gdi32.NewProc("StretchDIBits")
+	spool32                 = windows.NewLazySystemDLL("winspool.drv")
+	procOpenPrinterW        = spool32.NewProc("OpenPrinterW")
+	procClosePrinter        = spool32.NewProc("ClosePrinter")
+	procDocumentPropertiesW = spool32.NewProc("DocumentPropertiesW")
+	gdi32                   = windows.NewLazySystemDLL("gdi32.dll")
+	procCreateDCW           = gdi32.NewProc("CreateDCW")
+	procDeleteDC            = gdi32.NewProc("DeleteDC")
+	procGetDeviceCaps       = gdi32.NewProc("GetDeviceCaps")
+	procStartDocW           = gdi32.NewProc("StartDocW")
+	procStartPage           = gdi32.NewProc("StartPage")
+	procEndPage             = gdi32.NewProc("EndPage")
+	procEndDoc              = gdi32.NewProc("EndDoc")
+	procStretchDIBits       = gdi32.NewProc("StretchDIBits")
 )
 
 const (
@@ -176,13 +176,13 @@ func (w *WingDI) printPage(hdc, pdpiX, pdpiY uintptr, p *render.Page) error {
 		biSize += 256 * 4
 	}
 	info := make([]byte, biSize)
-	putLE32(info[0:], 40)                                // biSize
-	putLE32(info[4:], uint32(width))                     // biWidth
-	putLE32(info[8:], uint32(-height))                   // biHeight (negative = top-down)
-	putLE16(info[12:], 1)                                // biPlanes
-	putLE16(info[14:], uint16(bpp))                      // biBitCount
-	putLE32(info[16:], biRGB)                            // biCompression
-	putLE32(info[20:], uint32(dibStride*height))         // biSizeImage
+	putLE32(info[0:], 40)                        // biSize
+	putLE32(info[4:], uint32(width))             // biWidth
+	putLE32(info[8:], uint32(-height))           // biHeight (negative = top-down)
+	putLE16(info[12:], 1)                        // biPlanes
+	putLE16(info[14:], uint16(bpp))              // biBitCount
+	putLE32(info[16:], biRGB)                    // biCompression
+	putLE32(info[20:], uint32(dibStride*height)) // biSizeImage
 	if bpp == 8 {
 		for i := 0; i < 256; i++ {
 			off := 40 + i*4

@@ -29,11 +29,11 @@ type Found struct {
 
 // zoneState accumulates records seen while browsing.
 type zoneState struct {
-	ptr map[string]bool         // instance FQDN (lowercase, trailing dot)
-	srv map[string]*dns.SRV     // by instance FQDN
-	txt map[string]*dns.TXT     // by instance FQDN
-	a   map[string][]string     // host FQDN -> addresses
-	raw []string                // textual RRs for evidence
+	ptr map[string]bool     // instance FQDN (lowercase, trailing dot)
+	srv map[string]*dns.SRV // by instance FQDN
+	txt map[string]*dns.TXT // by instance FQDN
+	a   map[string][]string // host FQDN -> addresses
+	raw []string            // textual RRs for evidence
 }
 
 func newZoneState() *zoneState {

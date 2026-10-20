@@ -48,7 +48,7 @@ func pageFromImage(t *testing.T, img image.Image, cs render.ColorSpace) *render.
 			r, g, bl, _ := c.RGBA()
 			if cs == render.SRGB {
 				off := y*p.Header.Stride() + x*3
-				p.Pix[off], p.Pix[off+1], p.Pix[off+2] = byte(r >> 8), byte(g >> 8), byte(bl >> 8)
+				p.Pix[off], p.Pix[off+1], p.Pix[off+2] = byte(r>>8), byte(g>>8), byte(bl>>8)
 			} else {
 				p.Pix[y*p.Header.Stride()+x] = byte((299*int(r>>8) + 587*int(g>>8) + 114*int(bl>>8)) / 1000)
 			}

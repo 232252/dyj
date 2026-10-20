@@ -88,10 +88,10 @@ func (c *Client) httpURL() string {
 
 // PrintOptions are the job-template attributes `dyj print` can set.
 type PrintOptions struct {
-	JobName string
-	Copies  int
-	Media   string // PWG media name
-	Color   bool
+	JobName  string
+	Copies   int
+	Media    string // PWG media name
+	Color    bool
 	Fidelity bool
 	// Gzip compresses the document stream and declares
 	// compression=gzip (RFC 8011 §4.2.1). Worth it for large rasters.

@@ -156,8 +156,12 @@ type requestBuilder struct {
 	data     []byte
 }
 
-func opAttr(kv ...string) reqOpt       { return func(b *requestBuilder) { b.opAttrs = append(b.opAttrs, [2]string{kv[0], kv[1]}) } }
-func jobAttr(kv ...string) reqOpt      { return func(b *requestBuilder) { b.jobAttrs = append(b.jobAttrs, [2]string{kv[0], kv[1]}) } }
+func opAttr(kv ...string) reqOpt {
+	return func(b *requestBuilder) { b.opAttrs = append(b.opAttrs, [2]string{kv[0], kv[1]}) }
+}
+func jobAttr(kv ...string) reqOpt {
+	return func(b *requestBuilder) { b.jobAttrs = append(b.jobAttrs, [2]string{kv[0], kv[1]}) }
+}
 func jobInt(name string, v int32) reqOpt {
 	return func(b *requestBuilder) { b.jobInts = append(b.jobInts, [2]any{name, v}) }
 }

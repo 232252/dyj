@@ -761,17 +761,17 @@ func InterfaceAddrs(ifaces []*net.Interface) []net.IP {
 
 // TXTParams describes the DNS-SD TXT record contents for an IPP service.
 type TXTParams struct {
-	Port      int
-	Path      string
-	Type      string // ty=
-	PDL       string // pdl=
-	UUID      string
-	AdminURL  string
-	Note      string
-	Product   string
-	Color     bool
-	TLS       bool
-	Extra     map[string]string
+	Port     int
+	Path     string
+	Type     string // ty=
+	PDL      string // pdl=
+	UUID     string
+	AdminURL string
+	Note     string
+	Product  string
+	Color    bool
+	TLS      bool
+	Extra    map[string]string
 }
 
 // BuildTXT renders DNS-SD key=value pairs (RFC 6763 §6). hashicorp/mdns does

@@ -491,7 +491,7 @@ func (info PrinterInfo) withDefaults() PrinterInfo {
 		// when the operator renames the printer, which is exactly when a
 		// client SHOULD treat it as a new printer. Deployment (cmd/dyj)
 		// normally overrides this with a persisted random UUID.
-		info.UUID = "urn:uuid:" + DeriveUUID("dyj-printer:" + info.Name)
+		info.UUID = "urn:uuid:" + DeriveUUID("dyj-printer:"+info.Name)
 	}
 	if info.MakeAndModel == "" {
 		info.MakeAndModel = "dyj IPP Everywhere Printer"

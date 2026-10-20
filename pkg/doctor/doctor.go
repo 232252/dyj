@@ -132,8 +132,8 @@ func checkPort(p Params) Check {
 	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", p.Port))
 	if err != nil {
 		return Check{Name: "port", Level: LevelWarn,
-			Detail:    fmt.Sprintf("端口 %d 已被占用（可能是 dyj 服务已在运行）", p.Port),
-			Fix:       "若 dyj 服务已运行则无需处理；否则换端口或停掉占用进程",
+			Detail: fmt.Sprintf("端口 %d 已被占用（可能是 dyj 服务已在运行）", p.Port),
+			Fix:    "若 dyj 服务已运行则无需处理；否则换端口或停掉占用进程",
 		}
 	}
 	_ = ln.Close()
@@ -180,8 +180,8 @@ func checkFirewall() Check {
 	switch runtime.GOOS {
 	case "windows":
 		return Check{Name: "firewall", Level: LevelInfo,
-			Detail:    "Windows 防火墙需放行 TCP 6631 与 UDP 5353（三个网络配置文件都要）",
-			Fix:       `netsh advfirewall firewall add rule name="dyj IPP" dir=in action=allow program="<dyj.exe 路径>" protocol=TCP localport=6631 profile=domain,private,public`,
+			Detail: "Windows 防火墙需放行 TCP 6631 与 UDP 5353（三个网络配置文件都要）",
+			Fix:    `netsh advfirewall firewall add rule name="dyj IPP" dir=in action=allow program="<dyj.exe 路径>" protocol=TCP localport=6631 profile=domain,private,public`,
 		}
 	case "darwin":
 		return Check{Name: "firewall", Level: LevelInfo,

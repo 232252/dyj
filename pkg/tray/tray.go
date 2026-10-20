@@ -45,10 +45,10 @@ const (
 
 // statusResponse is the slice of GET /admin/api/status the tray needs.
 type statusResponse struct {
-	Accepting      bool             `json:"accepting"`
-	Queued         int              `json:"queued"`
-	Version        string           `json:"version"`
-	PairingEnabled bool             `json:"pairing_enabled"`
+	Accepting      bool   `json:"accepting"`
+	Queued         int    `json:"queued"`
+	Version        string `json:"version"`
+	PairingEnabled bool   `json:"pairing_enabled"`
 	Printers       []struct {
 		Name string `json:"name"`
 	} `json:"printers"`

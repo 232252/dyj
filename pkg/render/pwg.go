@@ -403,7 +403,7 @@ func DecodeAll(r io.Reader) ([]*Page, error) {
 // small helpers
 // ---------------------------------------------------------------------------
 
-func be32(b []byte) uint32  { return binary.BigEndian.Uint32(b) }
+func be32(b []byte) uint32     { return binary.BigEndian.Uint32(b) }
 func put32(b []byte, v uint32) { binary.BigEndian.PutUint32(b, v) }
 
 func max1(v int) int {
