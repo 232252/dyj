@@ -8,6 +8,7 @@ package ipp
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/232252/dyj/pkg/attributes"
 )
@@ -95,7 +96,7 @@ func (s *Server) validateTemplate(msg *attributes.Message) (fatal, soft []unsupp
 			continue
 		}
 		v := vals[0]
-		if !containsString(supported, v) {
+		if !slices.Contains(supported, v) {
 			soft = append(soft, unsupportedAttr{name, v})
 		}
 	}
@@ -173,7 +174,7 @@ func (s *Server) formatSupported(format string) bool {
 	if len(formats) == 0 {
 		formats = attributes.DefaultFormats()
 	}
-	return containsString(formats, format)
+	return slices.Contains(formats, format)
 }
 
 func colorModes(color bool) []string {
@@ -181,15 +182,6 @@ func colorModes(color bool) []string {
 		return []string{"auto", "color", "monochrome"}
 	}
 	return []string{"auto", "monochrome"}
-}
-
-func containsString(set []string, v string) bool {
-	for _, s := range set {
-		if s == v {
-			return true
-		}
-	}
-	return false
 }
 
 // ExpandRequested normalises requested-attributes collection names

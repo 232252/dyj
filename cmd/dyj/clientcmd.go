@@ -278,7 +278,7 @@ func encodeForSubmission(file string, data []byte) (format string, body []byte, 
 }
 
 func mustEncodePWG(pages []*render.Page) []byte {
-	var buf growingBuffer
+	var buf bytes.Buffer
 	w, err := render.NewWriter(&buf)
 	if err != nil {
 		panic(err)
@@ -288,16 +288,8 @@ func mustEncodePWG(pages []*render.Page) []byte {
 			panic(err)
 		}
 	}
-	return buf.bytes()
+	return buf.Bytes()
 }
-
-type growingBuffer struct{ b []byte }
-
-func (g *growingBuffer) Write(p []byte) (int, error) {
-	g.b = append(g.b, p...)
-	return len(p), nil
-}
-func (g *growingBuffer) bytes() []byte { return g.b }
 
 func cmdJobs(args []string) error {
 	fs := flag.NewFlagSet("jobs", flag.ContinueOnError)

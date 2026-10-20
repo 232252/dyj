@@ -4,6 +4,7 @@ import (
 	"compress/gzip"
 	"errors"
 	"fmt"
+	"strconv"
 
 	"github.com/232252/dyj/pkg/attributes"
 )
@@ -327,7 +328,7 @@ func (s *Server) jobResponse(requestID int32, id int32, state int32) *Response {
 
 func (s *Server) jobURI(id int32) string {
 	base := s.printer.primaryURI()
-	return base + "/" + itoa(int(id))
+	return base + "/" + strconv.Itoa(int(id))
 }
 
 func jobReasonFor(state int32) string {

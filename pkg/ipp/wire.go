@@ -26,8 +26,10 @@
 package ipp
 
 import (
+	"bytes"
 	"io"
 	"os"
+	"strconv"
 
 	"github.com/232252/dyj/pkg/attributes"
 )
@@ -114,27 +116,20 @@ func NewResponse(status int16, requestID int32) *Response {
 // Encode serialises the response. It never fails on an "unknown" attribute
 // name, which is the reason this package does not delegate to go-ipp here.
 func (r *Response) Encode() ([]byte, error) {
-	w := &sliceWriter{}
-	w.buf = append(w.buf,
+	var w bytes.Buffer
+	w.Write([]byte{
 		r.VersionMajor, r.VersionMinor,
-		byte(uint16(r.Status)>>8), byte(uint16(r.Status)),
-		byte(uint32(r.RequestID)>>24), byte(uint32(r.RequestID)>>16),
-		byte(uint32(r.RequestID)>>8), byte(uint32(r.RequestID)),
-	)
+		byte(uint16(r.Status) >> 8), byte(uint16(r.Status)),
+		byte(uint32(r.RequestID) >> 24), byte(uint32(r.RequestID) >> 16),
+		byte(uint32(r.RequestID) >> 8), byte(uint32(r.RequestID)),
+	})
 	for _, g := range r.Groups {
-		if err := EncodeAttrs(w, g); err != nil {
+		if err := EncodeAttrs(&w, g); err != nil {
 			return nil, err
 		}
 	}
-	w.buf = append(w.buf, GroupEnd)
-	return w.buf, nil
-}
-
-type sliceWriter struct{ buf []byte }
-
-func (s *sliceWriter) Write(p []byte) (int, error) {
-	s.buf = append(s.buf, p...)
-	return len(p), nil
+	w.WriteByte(GroupEnd)
+	return w.Bytes(), nil
 }
 
 // ---------------------------------------------------------------------------
@@ -225,21 +220,7 @@ func (p Printer) primaryURI() string {
 	if len(p.URIs) > 0 {
 		return p.URIs[0]
 	}
-	return "ipp://localhost:" + itoa(p.Port) + "/ipp/print"
-}
-
-func itoa(v int) string {
-	if v == 0 {
-		return "0"
-	}
-	var b [20]byte
-	i := len(b)
-	for v > 0 {
-		i--
-		b[i] = byte('0' + v%10)
-		v /= 10
-	}
-	return string(b[i:])
+	return "ipp://localhost:" + strconv.Itoa(p.Port) + "/ipp/print"
 }
 
 // info converts the transport-facing profile into the attribute package's

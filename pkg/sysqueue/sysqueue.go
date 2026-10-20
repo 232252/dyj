@@ -13,6 +13,7 @@ package sysqueue
 
 import (
 	"errors"
+	"strconv"
 	"strings"
 
 	"github.com/232252/dyj/pkg/logx"
@@ -61,24 +62,10 @@ func uniqueName(name string, taken func(string) bool) string {
 		return name
 	}
 	for i := 2; i < 99; i++ {
-		candidate := name + " (" + itoa(i) + ")"
+		candidate := name + " (" + strconv.Itoa(i) + ")"
 		if !taken(candidate) {
 			return candidate
 		}
 	}
 	return name + " (99)"
-}
-
-func itoa(v int) string {
-	if v == 0 {
-		return "0"
-	}
-	var b [8]byte
-	i := len(b)
-	for v > 0 {
-		i--
-		b[i] = byte('0' + v%10)
-		v /= 10
-	}
-	return string(b[i:])
 }

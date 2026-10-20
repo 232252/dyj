@@ -309,8 +309,7 @@ func (w *Writer) WritePage(p *Page) error {
 // writeRows emits rows with the repeat-count prefix and PackBits rows.
 func (w *Writer) writeRows(p *Page) error {
 	stride := p.Header.Stride()
-	var out bytesWriter
-	out.buf = make([]byte, 0, stride*2+64)
+	out := make([]byte, 0, stride*2+64)
 
 	enc := make([]byte, 0, stride*2)
 	for y := 0; y < p.Header.Height; {
@@ -323,12 +322,12 @@ func (w *Writer) writeRows(p *Page) error {
 		for run < 256 && y+run < p.Header.Height && bytes.Equal(p.Row(y+run), row) {
 			run++
 		}
-		out.buf = append(out.buf, byte(run-1))
+		out = append(out, byte(run-1))
 		enc = encodeRow(enc[:0], row, p.Header.ColorSpace.BytesPerPixel())
-		out.buf = append(out.buf, enc...)
+		out = append(out, enc...)
 		y += run
 	}
-	_, err := w.w.Write(out.buf)
+	_, err := w.w.Write(out)
 	return err
 }
 
@@ -421,11 +420,4 @@ func zeroStr(b []byte) string {
 		}
 	}
 	return string(b)
-}
-
-type bytesWriter struct{ buf []byte }
-
-func (b *bytesWriter) Write(p []byte) (int, error) {
-	b.buf = append(b.buf, p...)
-	return len(p), nil
 }
