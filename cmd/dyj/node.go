@@ -170,23 +170,9 @@ func runNode(ctx context.Context, raw serveOptions, mode runMode) error {
 	}
 
 	// ---- gate: loopback full access, LAN needs a paired token ----
-	gate := func(r *http.Request, token string) bool {
-		if isLoopbackRequest(r) {
-			return true
-		}
-		if token == "" || n.pair == nil {
-			return false
-		}
-		if id, ok := n.pair.Verify(token); ok {
-			_ = id
-			return true
-		}
-		lg.Info("deny.ipp", "src", hostOf(r.RemoteAddr))
-		return false
-	}
 	n.swap.Store(ipp.NewRouter(ipp.RouterOptions{
 		Entries: n.routerEntries(),
-		Gate:    gate,
+		Gate:    n.gate(),
 		Logger:  legacy,
 	}))
 
@@ -222,12 +208,7 @@ func runNode(ctx context.Context, raw serveOptions, mode runMode) error {
 	}
 
 	// ---- listeners (probe upward so the node ALWAYS comes up) ----
-	port := o.Port
-	ln, lerr := net.Listen("tcp", fmt.Sprintf(":%d", port))
-	for i := 1; lerr != nil && i < 10; i++ {
-		port = o.Port + i
-		ln, lerr = net.Listen("tcp", fmt.Sprintf(":%d", port))
-	}
+	ln, port, lerr := listenUpward(o.Port)
 	if lerr != nil {
 		return fmt.Errorf("listen :%d..: no free port: %w", o.Port, lerr)
 	}
@@ -246,12 +227,7 @@ func runNode(ctx context.Context, raw serveOptions, mode runMode) error {
 		if _, err := loadOrCreateTLSCert(stateDir, o.Name, hostName); err != nil {
 			return err
 		}
-		tport := o.TLSPort
-		tln, terr := net.Listen("tcp", fmt.Sprintf(":%d", tport))
-		for i := 1; terr != nil && i < 10; i++ {
-			tport = o.TLSPort + i
-			tln, terr = net.Listen("tcp", fmt.Sprintf(":%d", tport))
-		}
+		tln, _, terr := listenUpward(o.TLSPort)
 		if terr == nil {
 			cert, cerr := tls.LoadX509KeyPair(certFile(stateDir), keyFile(stateDir))
 			if cerr != nil {
@@ -568,6 +544,20 @@ func (n *node) applyConfig(raw []byte) error {
 	return nil
 }
 
+// listenUpward binds :port, or the next port above it when something
+// already sits there, so the node always comes up (bootstrap principle).
+func listenUpward(port int) (net.Listener, int, error) {
+	var err error
+	for i := 0; i < 10; i++ {
+		var ln net.Listener
+		ln, err = net.Listen("tcp", fmt.Sprintf(":%d", port+i))
+		if err == nil {
+			return ln, port + i, nil
+		}
+	}
+	return nil, port, err
+}
+
 // gate rebuilds the data-plane gate (loopback or valid pairing token).
 func (n *node) gate() func(*http.Request, string) bool {
 	return func(r *http.Request, token string) bool {
@@ -577,8 +567,11 @@ func (n *node) gate() func(*http.Request, string) bool {
 		if token == "" || n.pair == nil {
 			return false
 		}
-		_, ok := n.pair.Verify(token)
-		return ok
+		if _, ok := n.pair.Verify(token); ok {
+			return true
+		}
+		n.log.Info("deny.ipp", "src", hostOf(r.RemoteAddr))
+		return false
 	}
 }
 
