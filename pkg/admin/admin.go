@@ -28,6 +28,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -301,9 +302,7 @@ func (h *Handler) handleJobs(w http.ResponseWriter, r *http.Request) {
 	if lim := r.URL.Query().Get("limit"); lim != "" {
 		if n, err := strconv.Atoi(lim); err == nil && n > 0 && n < len(rows) {
 			tail := rows[len(rows)-n:]
-			for i, j := 0, len(tail)-1; i < j; i, j = i+1, j-1 {
-				tail[i], tail[j] = tail[j], tail[i]
-			}
+			slices.Reverse(tail)
 			rows = tail
 		}
 	}

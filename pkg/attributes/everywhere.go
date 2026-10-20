@@ -3,7 +3,7 @@ package attributes
 import (
 	"fmt"
 	"net"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 )
@@ -470,8 +470,8 @@ func ValidatePrinterAttributes(attrs []Attribute) error {
 			missing = append(missing, want)
 		}
 	}
-	sort.Strings(missing)
-	sort.Strings(problems)
+	slices.Sort(missing)
+	slices.Sort(problems)
 
 	for _, m := range missing {
 		problems = append(problems, fmt.Sprintf("missing required attribute %q", m))

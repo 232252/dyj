@@ -1,10 +1,11 @@
 package discovery
 
 import (
+	"cmp"
 	"fmt"
 	"log"
 	"net"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -79,7 +80,7 @@ func (s *zoneState) found() []Found {
 	for n := range s.ptr {
 		names = append(names, n)
 	}
-	sort.Strings(names)
+	slices.Sort(names)
 	out := make([]Found, 0, len(names))
 	for _, inst := range names {
 		f := Found{Instance: strings.TrimSuffix(inst, "."), Source: "raw"}
@@ -231,10 +232,10 @@ func mergeFound(in []Found) []Found {
 	out := make([]Found, 0, len(order))
 	for _, k := range order {
 		f := byKey[k]
-		sort.Strings(f.Addrs)
+		slices.Sort(f.Addrs)
 		out = append(out, *f)
 	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].Instance < out[j].Instance })
+	slices.SortStableFunc(out, func(a, b Found) int { return cmp.Compare(a.Instance, b.Instance) })
 	return out
 }
 

@@ -15,6 +15,7 @@ package driver
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"fmt"
 	"image"
@@ -22,7 +23,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -87,7 +88,7 @@ func collectPDFPages(dir, prefix string, dpi int) ([]*render.Page, error) {
 		}
 		files = append(files, pageFile{n, filepath.Join(dir, name)})
 	}
-	sort.Slice(files, func(i, k int) bool { return files[i].n < files[k].n })
+	slices.SortFunc(files, func(a, b pageFile) int { return cmp.Compare(a.n, b.n) })
 	if len(files) == 0 {
 		return nil, fmt.Errorf("driver: rasterizer produced no pages")
 	}

@@ -26,7 +26,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -198,7 +198,7 @@ func (s *Spooler) recover() error {
 			}
 		}
 	}
-	sort.Slice(s.order, func(i, k int) bool { return s.order[i] < s.order[k] })
+	slices.Sort(s.order)
 	return nil
 }
 

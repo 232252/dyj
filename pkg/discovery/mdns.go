@@ -17,10 +17,11 @@
 package discovery
 
 import (
+	"cmp"
 	"fmt"
 	"log"
 	"net"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -454,7 +455,7 @@ func (a *Advertiser) allRecords() []dns.RR {
 	for n := range names {
 		ordered = append(ordered, n)
 	}
-	sort.Strings(ordered)
+	slices.Sort(ordered)
 	for _, hostName := range ordered {
 		out = append(out, &dns.SRV{
 			Hdr:    hdr(instance, dns.TypeSRV, a.ttl, true),
@@ -622,13 +623,12 @@ func MulticastCapableInterfaces() ([]*net.Interface, error) {
 		}
 		out = append(out, &ifi)
 	}
-	sort.SliceStable(out, func(i, j int) bool {
+	slices.SortStableFunc(out, func(a, b *net.Interface) int {
 		// Real LAN (RFC1918, not APIPA) first, then by name for determinism.
-		ai, aj := scoreIface(out[i]), scoreIface(out[j])
-		if ai != aj {
-			return ai < aj
+		if ai, aj := scoreIface(a), scoreIface(b); ai != aj {
+			return cmp.Compare(ai, aj)
 		}
-		return out[i].Name < out[j].Name
+		return strings.Compare(a.Name, b.Name)
 	})
 	return out, nil
 }
@@ -835,7 +835,7 @@ func sortedKeys(m map[string]string) []string {
 	for k := range m {
 		out = append(out, k)
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return out
 }
 

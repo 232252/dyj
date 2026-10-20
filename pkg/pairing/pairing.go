@@ -18,7 +18,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -303,7 +303,7 @@ func (s *Store) List() []Device {
 	defer s.mu.Unlock()
 	out := make([]Device, len(s.devices))
 	copy(out, s.devices)
-	sort.SliceStable(out, func(i, j int) bool { return out[i].AddedAt.Before(out[j].AddedAt) })
+	slices.SortStableFunc(out, func(a, b Device) int { return a.AddedAt.Compare(b.AddedAt) })
 	return out
 }
 

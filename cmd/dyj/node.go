@@ -13,6 +13,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"crypto/tls"
 	"fmt"
@@ -22,7 +23,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -599,7 +600,7 @@ func (s *nodeSpool) Status() (bool, int32, []string) {
 	for r := range reasons {
 		out = append(out, r)
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return accepting, queued, out
 }
 
@@ -614,7 +615,7 @@ func (s *nodeSpool) Snapshot(which string) []ipp.JobView {
 	for _, sp := range s.n.shareSlice() {
 		out = append(out, sp.spool.Snapshot(which)...)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	slices.SortFunc(out, func(a, b ipp.JobView) int { return cmp.Compare(a.ID, b.ID) })
 	return out
 }
 
