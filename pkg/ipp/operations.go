@@ -90,7 +90,7 @@ func (s *Server) printJob(msg *attributes.Message, r *requestContext, last bool)
 
 	doc, err := s.openDocument(r, compression)
 	if err != nil {
-		return s.errorResponse(msg.RequestID, StatusErrorBadRequest, err.Error())
+		return errorResponse(msg.RequestID, StatusErrorBadRequest, err.Error())
 	}
 	doc.Format = documentFormat(msg)
 
@@ -131,7 +131,7 @@ func (s *Server) sendDocument(msg *attributes.Message, r *requestContext) *Respo
 	op := msg.Operation()
 	jobID, ok := attributes.GroupInt(op, "job-id")
 	if !ok || jobID <= 0 {
-		return s.errorResponse(msg.RequestID, StatusErrorBadRequest, "dyj: Send-Document requires job-id")
+		return errorResponse(msg.RequestID, StatusErrorBadRequest, "dyj: Send-Document requires job-id")
 	}
 	last, _ := attributes.GroupBool(op, "last-document")
 
@@ -141,7 +141,7 @@ func (s *Server) sendDocument(msg *attributes.Message, r *requestContext) *Respo
 	compression := attributes.GroupFirstString(op, "compression")
 	doc, err := s.openDocument(r, compression)
 	if err != nil {
-		return s.errorResponse(msg.RequestID, StatusErrorBadRequest, err.Error())
+		return errorResponse(msg.RequestID, StatusErrorBadRequest, err.Error())
 	}
 	doc.Format = documentFormat(msg)
 
@@ -176,7 +176,7 @@ func (s *Server) getJobs(msg *attributes.Message) *Response {
 	switch which {
 	case "", "not-completed", "completed", "all":
 	default:
-		return s.errorResponse(msg.RequestID, StatusErrorClientUnsupported, "dyj: unknown which-jobs value "+which)
+		return errorResponse(msg.RequestID, StatusErrorClientUnsupported, "dyj: unknown which-jobs value "+which)
 	}
 	want := RequestedAttributes(msg)
 
@@ -195,7 +195,7 @@ func (s *Server) getJobAttributes(msg *attributes.Message) *Response {
 	}
 	jobID, ok := attributes.GroupInt(msg.Operation(), "job-id")
 	if !ok || jobID <= 0 {
-		return s.errorResponse(msg.RequestID, StatusErrorBadRequest, "dyj: Get-Job-Attributes requires job-id")
+		return errorResponse(msg.RequestID, StatusErrorBadRequest, "dyj: Get-Job-Attributes requires job-id")
 	}
 	v, ok := s.sink.View(int32(jobID))
 	if !ok {
@@ -216,7 +216,7 @@ func (s *Server) cancelJob(msg *attributes.Message) *Response {
 	}
 	jobID, ok := attributes.GroupInt(msg.Operation(), "job-id")
 	if !ok || jobID <= 0 {
-		return s.errorResponse(msg.RequestID, StatusErrorBadRequest, "dyj: Cancel-Job requires job-id")
+		return errorResponse(msg.RequestID, StatusErrorBadRequest, "dyj: Cancel-Job requires job-id")
 	}
 	if err := s.sink.Cancel(int32(jobID)); err != nil {
 		return s.sinkError(msg.RequestID, err)
@@ -381,7 +381,7 @@ func keywordsOrNone(v []string) [][]byte {
 }
 
 // errorResponse builds a status-only IPP response with a status-message.
-func (s *Server) errorResponse(requestID int32, status int16, msg string) *Response {
+func errorResponse(requestID int32, status int16, msg string) *Response {
 	resp := NewResponse(status, requestID)
 	resp.Groups = []Group{{Tag: GroupOperation, Attrs: append(BuildOperationAttrs(),
 		Attr{Tag: TagText, Name: "status-message", Values: [][]byte{Text(msg)}})}}
@@ -392,15 +392,15 @@ func (s *Server) errorResponse(requestID int32, status int16, msg string) *Respo
 func (s *Server) sinkError(requestID int32, err error) *Response {
 	switch {
 	case errors.Is(err, errNoSink):
-		return s.errorResponse(requestID, 0x0506, err.Error()) // printer-not-accepting-jobs
+		return errorResponse(requestID, 0x0506, err.Error()) // printer-not-accepting-jobs
 	case errors.Is(err, ErrUnknownJob):
-		return s.errorResponse(requestID, StatusErrorNotFound, err.Error())
+		return errorResponse(requestID, StatusErrorNotFound, err.Error())
 	case errors.Is(err, ErrJobFinished):
-		return s.errorResponse(requestID, StatusErrorNotPossible, err.Error())
+		return errorResponse(requestID, StatusErrorNotPossible, err.Error())
 	case errors.Is(err, ErrNotAccepting):
-		return s.errorResponse(requestID, 0x0506, err.Error())
+		return errorResponse(requestID, 0x0506, err.Error())
 	default:
-		return s.errorResponse(requestID, StatusErrorDocumentAccess, err.Error())
+		return errorResponse(requestID, StatusErrorDocumentAccess, err.Error())
 	}
 }
 

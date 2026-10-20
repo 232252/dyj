@@ -375,6 +375,42 @@ func TestMalformedBodyStillAnswersIPP(t *testing.T) {
 	}
 }
 
+// TestMalformedBodyEchoesRequestID: even when the attribute stream is
+// garbage, a client must be able to correlate the 0x0400 answer with its
+// request — the response echoes the request-id from the message header
+// (RFC 8010 §3.1.1).
+func TestMalformedBodyEchoesRequestID(t *testing.T) {
+	// Valid 8-byte header (version 2.0, Get-Printer-Attributes, id 4242)
+	// followed by a value tag before any group delimiter, which the
+	// decoder rejects.
+	body := []byte{
+		0x02, 0x00, 0x00, 0x0B, 0x00, 0x00, 0x10, 0x92,
+		0x41, 0x00, 0x01, 'a', 0x00, 0x01, 'b',
+	}
+
+	srv := NewServer(Options{Printer: DefaultPrinter()})
+	ts := httptest.NewServer(http.HandlerFunc(srv.handle))
+	defer ts.Close()
+
+	resp, err := http.Post(ts.URL+"/ipp/print", ContentTypeIPP, bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var buf bytes.Buffer
+	_, _ = buf.ReadFrom(resp.Body)
+	raw := buf.Bytes()
+	if len(raw) < 8 {
+		t.Fatalf("error response too short: %d bytes", len(raw))
+	}
+	if status := binary.BigEndian.Uint16(raw[2:4]); status != 0x0400 {
+		t.Fatalf("status = 0x%04X, want 0x0400 (client-error-bad-request)", status)
+	}
+	if id := binary.BigEndian.Uint32(raw[4:8]); id != 4242 {
+		t.Fatalf("request-id = %d, want 4242 echoed from the malformed body", id)
+	}
+}
+
 // TestPrintJobIsRefusedHonestly: with no backend wired up the server must say
 // so instead of accepting a document it cannot print.
 func TestPrintJobIsRefusedHonestly(t *testing.T) {

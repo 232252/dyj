@@ -15,6 +15,7 @@ package ipp
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -144,18 +145,10 @@ func (rt *Router) serveUnconfigured(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "ipp: only POST carries IPP requests", http.StatusMethodNotAllowed)
 		return
 	}
-	resp := NewResponse(StatusErrorNotAcceptingJobs, requestIDOf(r))
-	resp.Groups = []Group{{Tag: GroupOperation, Attrs: append(BuildOperationAttrs(),
-		Attr{Tag: TagText, Name: "status-message", Values: [][]byte{Text("dyj: no printer is shared yet")}})}}
-	buf, err := resp.Encode()
-	if err != nil {
-		http.Error(w, "ipp: encode failed", http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", ContentTypeIPP)
-	w.Header().Set("Content-Length", fmt.Sprint(len(buf)))
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(buf)
+	head := make([]byte, 8)
+	n, _ := io.ReadFull(r.Body, head)
+	writeIPP(w, errorResponse(headerRequestID(head[:n]), StatusErrorNotAcceptingJobs,
+		"dyj: no printer is shared yet"), rt.opts.Logger)
 }
 
 // logxRedact keeps tokens out of log lines without importing pkg/logx

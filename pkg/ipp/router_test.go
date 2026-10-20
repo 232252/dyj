@@ -2,6 +2,7 @@ package ipp
 
 import (
 	"bytes"
+	"encoding/binary"
 	"io"
 	"log"
 	"net/http"
@@ -109,15 +110,29 @@ func TestRouterBootstrapModeAnswersNotAccepting(t *testing.T) {
 	ts := httptest.NewServer(rt)
 	defer ts.Close()
 
-	if resp := postIPP(t, ts.URL+"/ipp/print", buildGetPrinterRequest()); resp.StatusCode != http.StatusOK {
-		t.Fatalf("POST: status %d, want 200 with IPP error body", resp.StatusCode)
-	}
-	resp, err := http.Get(ts.URL + "/")
+	resp, err := http.Post(ts.URL+"/ipp/print", ContentTypeIPP, bytes.NewReader(buildGetPrinterRequest()))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST: status %d, want 200 with IPP error body", resp.StatusCode)
+	}
+	if status := binary.BigEndian.Uint16(raw[2:4]); status != 0x0506 {
+		t.Fatalf("POST: IPP status 0x%04X, want 0x0506 (not-accepting-jobs)", status)
+	}
+	// buildGetPrinterRequest carries request-id 7; the unconfigured answer
+	// must echo it so probing clients can correlate.
+	if id := binary.BigEndian.Uint32(raw[4:8]); id != 7 {
+		t.Fatalf("POST: request-id %d, want 7 echoed", id)
+	}
+	resp2, err := http.Get(ts.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp2.Body.Close()
+	body, _ := io.ReadAll(resp2.Body)
 	if !strings.Contains(string(body), "not configured") {
 		t.Fatalf("GET body should explain the bootstrap state, got %q", body)
 	}

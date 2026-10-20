@@ -1,9 +1,11 @@
 package ipp
 
 import (
+	"bytes"
 	"compress/gzip"
 	"context"
 	"crypto/tls"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -173,15 +175,20 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	msg, err := DecodeRequestStream(body)
+	// Snatch the first bytes before decoding: when the attribute stream
+	// turns out to be malformed we can still echo the request-id from the
+	// message header so the client can correlate the error (RFC 8010
+	// §3.1.1). MultiReader replays them, so the decode path itself is
+	// copy-free.
+	head := make([]byte, 8)
+	n, _ := io.ReadFull(body, head)
+	msg, err := DecodeRequestStream(io.MultiReader(bytes.NewReader(head[:n]), body))
 	if err != nil {
 		// A malformed IPP body must still get an IPP-shaped answer where
 		// possible: the Windows client treats a non-IPP 4xx as "unreachable".
 		s.log.Printf("ipp: decode failed from %s: %v", r.RemoteAddr, err)
-		resp := NewResponse(StatusErrorBadRequest, requestIDOf(r))
-		resp.Groups = []Group{{Tag: GroupOperation, Attrs: append(BuildOperationAttrs(),
-			Attr{Tag: TagText, Name: "status-message", Values: [][]byte{Text("dyj: malformed IPP request")}})}}
-		s.writeIPP(w, resp)
+		writeIPP(w, errorResponse(headerRequestID(head[:n]), StatusErrorBadRequest,
+			"dyj: malformed IPP request"), s.log)
 		return
 	}
 
@@ -191,11 +198,10 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	rc := &requestContext{body: msg.DataReader, contentLength: r.ContentLength, remoteAddr: r.RemoteAddr}
 	resp := s.dispatch(msg, rc)
 	if resp == nil {
-		resp = NewResponse(StatusErrorOperationNotSupported, msg.RequestID)
-		resp.Groups = []Group{{Tag: GroupOperation, Attrs: append(BuildOperationAttrs(),
-			Attr{Tag: TagText, Name: "status-message", Values: [][]byte{Text("dyj: operation not supported")}})}}
+		resp = errorResponse(msg.RequestID, StatusErrorOperationNotSupported,
+			"dyj: operation not supported")
 	}
-	s.writeIPP(w, resp)
+	writeIPP(w, resp, s.log)
 }
 
 // maxRequestBody bounds the IPP document stream. A full PWG raster job
@@ -222,25 +228,21 @@ func decodeBody(r *http.Request) (io.Reader, error) {
 	}
 }
 
-// requestIDOf fishes the request-id out of a body we failed to decode,
-// so the error response can still be correlated by the client.
-func requestIDOf(r *http.Request) int32 {
-	br, ok := r.Body.(interface{ Peek(int) ([]byte, error) })
-	if !ok {
+// headerRequestID extracts the request-id from the first bytes of an IPP
+// message that later failed to decode, so the error response can still be
+// correlated by the client. Fewer than 8 readable bytes means 0.
+func headerRequestID(head []byte) int32 {
+	if len(head) < 8 {
 		return 0
 	}
-	head, err := br.Peek(8)
-	if err != nil || len(head) < 8 {
-		return 0
-	}
-	return int32(uint32(head[4])<<24 | uint32(head[5])<<16 | uint32(head[6])<<8 | uint32(head[7]))
+	return int32(binary.BigEndian.Uint32(head[4:8]))
 }
 
 // writeIPP emits the response bytes with the mandatory content type.
-func (s *Server) writeIPP(w http.ResponseWriter, resp *Response) {
+func writeIPP(w http.ResponseWriter, resp *Response, log *log.Logger) {
 	buf, err := resp.Encode()
 	if err != nil {
-		s.log.Printf("ipp: response encode failed: %v", err)
+		log.Printf("ipp: response encode failed: %v", err)
 		http.Error(w, "ipp: response encode failed", http.StatusInternalServerError)
 		return
 	}
@@ -248,7 +250,7 @@ func (s *Server) writeIPP(w http.ResponseWriter, resp *Response) {
 	w.Header().Set("Content-Length", fmt.Sprint(len(buf)))
 	w.WriteHeader(http.StatusOK)
 	if _, err := w.Write(buf); err != nil {
-		s.log.Printf("ipp: write failed: %v", err)
+		log.Printf("ipp: write failed: %v", err)
 	}
 }
 
