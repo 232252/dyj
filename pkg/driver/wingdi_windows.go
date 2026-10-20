@@ -20,6 +20,7 @@ package driver
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"syscall"
 	"unsafe"
@@ -176,13 +177,13 @@ func (w *WingDI) printPage(hdc, pdpiX, pdpiY uintptr, p *render.Page) error {
 		biSize += 256 * 4
 	}
 	info := make([]byte, biSize)
-	putLE32(info[0:], 40)                        // biSize
-	putLE32(info[4:], uint32(width))             // biWidth
-	putLE32(info[8:], uint32(-height))           // biHeight (negative = top-down)
-	putLE16(info[12:], 1)                        // biPlanes
-	putLE16(info[14:], uint16(bpp))              // biBitCount
-	putLE32(info[16:], biRGB)                    // biCompression
-	putLE32(info[20:], uint32(dibStride*height)) // biSizeImage
+	binary.LittleEndian.PutUint32(info[0:], 40)                        // biSize
+	binary.LittleEndian.PutUint32(info[4:], uint32(width))             // biWidth
+	binary.LittleEndian.PutUint32(info[8:], uint32(-height))           // biHeight (negative = top-down)
+	binary.LittleEndian.PutUint16(info[12:], 1)                        // biPlanes
+	binary.LittleEndian.PutUint16(info[14:], uint16(bpp))              // biBitCount
+	binary.LittleEndian.PutUint32(info[16:], biRGB)                    // biCompression
+	binary.LittleEndian.PutUint32(info[20:], uint32(dibStride*height)) // biSizeImage
 	if bpp == 8 {
 		for i := 0; i < 256; i++ {
 			off := 40 + i*4
@@ -190,8 +191,8 @@ func (w *WingDI) printPage(hdc, pdpiX, pdpiY uintptr, p *render.Page) error {
 		}
 	}
 
-	destW := int64(width) * int64(pdpiX) / int64(maxInt64(int64(p.Header.XDPI), 1))
-	destH := int64(height) * int64(pdpiY) / int64(maxInt64(int64(p.Header.YDPI), 1))
+	destW := int64(width) * int64(pdpiX) / max(int64(p.Header.XDPI), 1)
+	destH := int64(height) * int64(pdpiY) / max(int64(p.Header.YDPI), 1)
 
 	if r, _, err := procStartPage.Call(hdc); int32(r) <= 0 {
 		return fmt.Errorf("driver: StartPage failed: %v", err)
@@ -212,21 +213,6 @@ func (w *WingDI) printPage(hdc, pdpiX, pdpiY uintptr, p *render.Page) error {
 		return fmt.Errorf("driver: EndPage failed: %v", err)
 	}
 	return nil
-}
-
-func putLE32(b []byte, v uint32) {
-	b[0], b[1], b[2], b[3] = byte(v), byte(v>>8), byte(v>>16), byte(v>>24)
-}
-
-func putLE16(b []byte, v uint16) {
-	b[0], b[1] = byte(v), byte(v>>8)
-}
-
-func maxInt64(a, b int64) int64 {
-	if a > b {
-		return a
-	}
-	return b
 }
 
 func (w *WingDI) openPrinter() (syscall.Handle, error) {
@@ -265,22 +251,19 @@ func (w *WingDI) devMode(h syscall.Handle) ([]byte, error) {
 
 // patchDevMode applies the job's paper size, copies and orientation.
 func patchDevMode(dm []byte, job PrintJob) {
-	fields := le32(dm[devModeOffsetFields:])
+	fields := binary.LittleEndian.Uint32(dm[devModeOffsetFields:])
 	if job.Media != "" {
 		if code, ok := matchPaper(job.Media); ok {
-			putLE(dm[devModeOffsetPaperSize:], uint16(code))
+			binary.LittleEndian.PutUint16(dm[devModeOffsetPaperSize:], uint16(code))
 			fields |= dmPaperSize
 		}
 	}
 	if job.Copies > 1 && job.Copies <= 999 {
-		putLE(dm[devModeOffsetCopies:], uint16(job.Copies))
+		binary.LittleEndian.PutUint16(dm[devModeOffsetCopies:], uint16(job.Copies))
 		fields |= dmCopies
 	}
-	_ = fields // orientation stays portrait v1
-	dm[devModeOffsetFields] = byte(fields)
-	dm[devModeOffsetFields+1] = byte(fields >> 8)
-	dm[devModeOffsetFields+2] = byte(fields >> 16)
-	dm[devModeOffsetFields+3] = byte(fields >> 24)
+	// Orientation stays portrait in v1.
+	binary.LittleEndian.PutUint32(dm[devModeOffsetFields:], fields)
 }
 
 func matchPaper(media string) (uint16, bool) {
@@ -298,15 +281,6 @@ func matchPaper(media string) (uint16, bool) {
 }
 
 func isDigit(c byte) bool { return c >= '0' && c <= '9' }
-
-func le32(b []byte) uint32 {
-	return uint32(b[0]) | uint32(b[1])<<8 | uint32(b[2])<<16 | uint32(b[3])<<24
-}
-
-func putLE(b []byte, v uint16) {
-	b[0] = byte(v)
-	b[1] = byte(v >> 8)
-}
 
 func normalizeDPI(v uintptr) uintptr {
 	if v == 0 {
