@@ -45,10 +45,12 @@ var (
 // IsVirtual reports whether a queue writes to a file/dialog/fax instead of
 // a physical device. All comparisons are case-insensitive.
 func IsVirtual(name, driver, port string) bool {
-	if virtualPortNames[strings.ToLower(strings.TrimSpace(port))] {
+	port = strings.ToLower(strings.TrimSpace(port))
+	if virtualPortNames[port] {
 		return true
 	}
-	if virtualDriverNames[strings.ToLower(strings.TrimSpace(driver))] {
+	driver = strings.ToLower(strings.TrimSpace(driver))
+	if virtualDriverNames[driver] {
 		return true
 	}
 	n := strings.ToLower(strings.TrimSpace(name))
@@ -63,7 +65,7 @@ func IsVirtual(name, driver, port string) bool {
 	// Catch-alls for third-party document writers whose driver or port
 	// carries the word "virtual" (measured: Kingsoft/WPS "导出为WPS PDF"
 	// on "Kingsoft Virtual Printer Port").
-	if strings.Contains(strings.ToLower(port), "virtual") || strings.Contains(strings.ToLower(driver), "virtual") {
+	if strings.Contains(port, "virtual") || strings.Contains(driver, "virtual") {
 		return true
 	}
 	return false
