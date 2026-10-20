@@ -53,6 +53,20 @@ func writeErr(w http.ResponseWriter, code int, msg string) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }
 
+// requireMethod enforces a handler's HTTP methods, answering 405 with the
+// Allow header on mismatch. Returns false once the error is written.
+func requireMethod(w http.ResponseWriter, r *http.Request, methods ...string) bool {
+	for _, m := range methods {
+		if r.Method == m {
+			return true
+		}
+	}
+	allow := strings.Join(methods, ", ")
+	w.Header().Set("Allow", allow)
+	writeErr(w, http.StatusMethodNotAllowed, allow+" only")
+	return false
+}
+
 func readJSONBody(w http.ResponseWriter, r *http.Request, v any) bool {
 	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<16))
 	if err != nil {
@@ -72,9 +86,7 @@ func readJSONBody(w http.ResponseWriter, r *http.Request, v any) bool {
 
 // apiLocalPrinters backs the share wizard's checkbox list (SHARE-1/2).
 func (n *node) apiLocalPrinters(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		w.Header().Set("Allow", "GET")
-		writeErr(w, http.StatusMethodNotAllowed, "GET only")
+	if !requireMethod(w, r, http.MethodGet) {
 		return
 	}
 	printers, err := localprint.List()
@@ -101,9 +113,7 @@ func (n *node) apiLocalPrinters(w http.ResponseWriter, r *http.Request) {
 // apiPairing serves the current PIN to the dashboard/tray (loopback/token
 // gated by the Extra mount).
 func (n *node) apiPairing(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		w.Header().Set("Allow", "GET")
-		writeErr(w, http.StatusMethodNotAllowed, "GET only")
+	if !requireMethod(w, r, http.MethodGet) {
 		return
 	}
 	if n.pair == nil {
@@ -115,9 +125,7 @@ func (n *node) apiPairing(w http.ResponseWriter, r *http.Request) {
 }
 
 func (n *node) apiPairingRotate(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
-		writeErr(w, http.StatusMethodNotAllowed, "POST only")
+	if !requireMethod(w, r, http.MethodPost) {
 		return
 	}
 	if n.pair == nil {
@@ -150,8 +158,7 @@ func (n *node) apiDevices(w http.ResponseWriter, r *http.Request) {
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"revoked": id})
 	default:
-		w.Header().Set("Allow", "GET, DELETE")
-		writeErr(w, http.StatusMethodNotAllowed, "GET, DELETE")
+		requireMethod(w, r, http.MethodGet, http.MethodDelete)
 	}
 }
 
@@ -187,9 +194,7 @@ type scanEntry struct {
 // previous 502 ("mDNS scan failed") hid that path behind a jargon error
 // exactly when the two machines are not on the same broadcast domain.
 func (n *node) apiScan(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		w.Header().Set("Allow", "GET")
-		writeErr(w, http.StatusMethodNotAllowed, "GET only")
+	if !requireMethod(w, r, http.MethodGet) {
 		return
 	}
 	var (
@@ -581,9 +586,7 @@ func firstReachable(addrs []string, port int) string {
 // /pair endpoint (avoids CORS and keeps the device id stable on this
 // machine). The response is passed through with full IPP URLs added.
 func (n *node) apiPairProxy(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
-		writeErr(w, http.StatusMethodNotAllowed, "POST only")
+	if !requireMethod(w, r, http.MethodPost) {
 		return
 	}
 	var req struct {
@@ -672,9 +675,7 @@ func (n *node) apiPairProxy(w http.ResponseWriter, r *http.Request) {
 
 // apiQueueInstall installs a paired printer as a system queue (USE-4/5).
 func (n *node) apiQueueInstall(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
-		writeErr(w, http.StatusMethodNotAllowed, "POST only")
+	if !requireMethod(w, r, http.MethodPost) {
 		return
 	}
 	var req struct {
@@ -719,9 +720,7 @@ func boolToInt(b bool) int {
 }
 
 func (n *node) apiQueueRemove(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
-		writeErr(w, http.StatusMethodNotAllowed, "POST only")
+	if !requireMethod(w, r, http.MethodPost) {
 		return
 	}
 	var req struct {
@@ -744,9 +743,7 @@ func (n *node) apiQueueRemove(w http.ResponseWriter, r *http.Request) {
 // apiQueueTest prints the embedded test page through a system queue
 // (USE-6): the honest end-to-end check a human understands.
 func (n *node) apiQueueTest(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
-		writeErr(w, http.StatusMethodNotAllowed, "POST only")
+	if !requireMethod(w, r, http.MethodPost) {
 		return
 	}
 	var req struct {
@@ -769,9 +766,7 @@ func (n *node) apiQueueTest(w http.ResponseWriter, r *http.Request) {
 }
 
 func (n *node) apiAddedPrinters(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		w.Header().Set("Allow", "GET")
-		writeErr(w, http.StatusMethodNotAllowed, "GET only")
+	if !requireMethod(w, r, http.MethodGet) {
 		return
 	}
 	list := n.added.list()
@@ -829,9 +824,7 @@ func classifyAdded(queueOK, queueKnown, probed bool, pr ippProbe) string {
 // lives in its own file), doctor checks (share side + receiver side) and
 // the tail of the rotating log. Served as one zip download.
 func (n *node) apiDiagExport(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		w.Header().Set("Allow", "GET")
-		writeErr(w, http.StatusMethodNotAllowed, "GET only")
+	if !requireMethod(w, r, http.MethodGet) {
 		return
 	}
 	n.mu.Lock()
