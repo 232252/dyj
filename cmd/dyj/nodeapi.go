@@ -673,7 +673,11 @@ func (n *node) apiQueueInstall(w http.ResponseWriter, r *http.Request) {
 	name, res, err := sysqueue.InstallAuto(sysqueue.Spec{Name: req.Name, IPPURL: req.IPPURL})
 	n.log.Info("queue.install", "qname", name, "rc", boolToInt(err == nil), "elevated", res.Elevated, "err", err, "cmd", res.Cmd)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		// One JSON body: the browser's res.json() cannot parse two
+		// concatenated objects, so the error text and the helper result
+		// (elevated/cmd context) must share a single write.
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusInternalServerError)
 		_ = json.NewEncoder(w).Encode(map[string]any{"error": err.Error(), "result": res})
 		return
 	}
