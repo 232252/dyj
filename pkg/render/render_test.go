@@ -1,6 +1,7 @@
 package render
 
 import (
+	"bufio"
 	"bytes"
 	"image"
 	"image/color"
@@ -88,6 +89,40 @@ func TestPWGMagicAndShortStream(t *testing.T) {
 	buf.Write(make([]byte, 100))
 	if _, err := DecodeAll(bytes.NewReader(buf.Bytes())); err == nil {
 		t.Fatal("expected an error for a truncated page header")
+	}
+}
+
+// TestReadRowDataTruncatedTail: a repeat op arriving with fewer than bpp
+// bytes left in the row must fill what fits, not slice past the buffer
+// (the old code panicked here on malformed streams).
+func TestReadRowDataTruncatedTail(t *testing.T) {
+	// Row of 5 bytes at bpp=3: op 1 seeds pixel [1,2,3]; op 2 is a repeat
+	// with only 2 bytes of row left.
+	br := bufio.NewReader(bytes.NewReader([]byte{0x00, 1, 2, 3, 0x00, 4, 5}))
+	buf := make([]byte, 5)
+	if err := readRowData(br, buf, 3); err != nil {
+		t.Fatalf("readRowData: %v", err)
+	}
+	if want := []byte{1, 2, 3, 4, 5}; !bytes.Equal(buf, want) {
+		t.Fatalf("row = %v, want %v", buf, want)
+	}
+}
+
+// TestReadRowDataLongRunEquivalence: the exponential run expansion must
+// produce exactly the same bytes as a plain per-pixel fill.
+func TestReadRowDataLongRunEquivalence(t *testing.T) {
+	for _, count := range []int{2, 3, 7, 64, 127, 128} {
+		for _, bpp := range []int{1, 3} {
+			stream := append([]byte{byte(count - 1)}, bytes.Repeat([]byte{0xAB}, bpp)...)
+			want := bytes.Repeat([]byte{0xAB}, count*bpp)
+			got := make([]byte, len(want))
+			if err := readRowData(bufio.NewReader(bytes.NewReader(stream)), got, bpp); err != nil {
+				t.Fatalf("count=%d bpp=%d: %v", count, bpp, err)
+			}
+			if !bytes.Equal(got, want) {
+				t.Fatalf("count=%d bpp=%d: got %v want %v", count, bpp, got, want)
+			}
+		}
 	}
 }
 

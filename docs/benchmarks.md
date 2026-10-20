@@ -9,13 +9,14 @@ go test -run XXX -bench . -benchtime 2s ./pkg/render/ ./pkg/attributes/ ./pkg/ip
 
 Baseline recorded 2026-10-20 — go1.27.3, windows/amd64, AMD Ryzen 5 5600G
 (12 hardware threads). Encode figures are after the inline pixel-compare
-fix (pixEqual) that followed the first profile; the pre-fix gray-encode
-baseline was 220.7 MB/s.
+fix (pixEqual) and decode after the exponential run expansion that
+followed the first profiles; the pre-fix baselines were 220.7 MB/s
+(encode gray) and 358.3 MB/s (decode gray).
 
 | Benchmark | ns/op | Throughput | Notes |
 |---|---|---|---|
 | `render/PWGEncodeA4Gray` | 20.9–24.2 ms | 359–415 MB/s | A4@300dpi sgray, mixed run/literal page |
-| `render/PWGDecodeA4Gray` | 24.3 ms | 358.3 MB/s | decode of the same stream |
+| `render/PWGDecodeA4Gray` | 4.6–5.0 ms | 1753–1897 MB/s | decode of the same stream |
 | `render/PWGEncodeLetterColor` | 36.7–41.8 ms | 604–688 MB/s | Letter@300dpi sRGB |
 | `attributes/BuildPrinterAttributes` | 9.3 µs | — | full IPP Everywhere table assembly |
 | `attributes/EncodePrinterAttributes` | 10.2 µs | 282.2 MB/s | wire encoding of that table |

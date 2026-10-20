@@ -232,14 +232,21 @@ func readRowData(br *bufio.Reader, buf []byte, bpp int) error {
 			if n > len(buf)-i {
 				n = len(buf) - i
 			}
-			pix := buf[i : i+bpp]
-			if _, err := io.ReadFull(br, pix); err != nil {
+			end := i + n
+			// A malformed stream can leave fewer than bpp bytes in the
+			// row; seed with what fits instead of slicing past the end.
+			seed := min(bpp, n)
+			if _, err := io.ReadFull(br, buf[i:i+seed]); err != nil {
 				return err
 			}
-			i += bpp
-			for n -= bpp; n > 0; n -= bpp {
-				copy(buf[i:i+bpp], pix)
-				i += bpp
+			i += seed
+			// Expand the run exponentially: each copy doubles the filled
+			// prefix, so a 128-pixel run costs ~7 memmoves, not 127.
+			for filled := seed; i < end; {
+				c := min(filled, end-i)
+				copy(buf[i:i+c], buf[i-filled:i-filled+c])
+				i += c
+				filled += c
 			}
 		}
 	}
