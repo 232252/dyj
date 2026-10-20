@@ -131,10 +131,7 @@ func Install() error {
 		// real install registered the bare exe without "service run",
 		// which fell into launch mode and was killed by the SCM after
 		// 30 s (event 7009); rerunning the installer must repair it.
-		if st, qerr := existing.Query(); qerr == nil && st.State != svc.Stopped {
-			_, _ = existing.Control(svc.Stop)
-			waitStopped(existing)
-		}
+		stopIfRunning(existing)
 		_ = existing.Delete()
 		existing.Close()
 		// Deletion is asynchronous (marked-for-delete until the last
@@ -164,51 +161,59 @@ func Install() error {
 	return nil
 }
 
-// Uninstall removes the service.
-func Uninstall() error {
+// connectService opens the SCM and the dyj service: the connect error
+// names the admin-rights requirement, the open error means not installed.
+func connectService() (*mgr.Mgr, *mgr.Service, error) {
 	m, err := mgr.Connect()
 	if err != nil {
-		return fmt.Errorf("service: connecting to SCM requires administrator rights: %w", err)
+		return nil, nil, fmt.Errorf("service: connecting to SCM requires administrator rights: %w", err)
 	}
-	defer m.Disconnect()
 	s, err := m.OpenService(ServiceName)
 	if err != nil {
-		return fmt.Errorf("service %q is not installed", ServiceName)
+		m.Disconnect()
+		return nil, nil, fmt.Errorf("service %q is not installed", ServiceName)
 	}
-	defer s.Close()
+	return m, s, nil
+}
+
+// stopIfRunning asks a running service to stop and waits for it.
+func stopIfRunning(s *mgr.Service) {
 	if st, err := s.Query(); err == nil && st.State != svc.Stopped {
 		_, _ = s.Control(svc.Stop)
 		waitStopped(s)
 	}
+}
+
+// Uninstall removes the service.
+func Uninstall() error {
+	m, s, err := connectService()
+	if err != nil {
+		return err
+	}
+	defer m.Disconnect()
+	defer s.Close()
+	stopIfRunning(s)
 	return s.Delete()
 }
 
 // Start starts the installed service.
 func Start() error {
-	m, err := mgr.Connect()
+	m, s, err := connectService()
 	if err != nil {
-		return fmt.Errorf("service: connecting to SCM requires administrator rights: %w", err)
+		return err
 	}
 	defer m.Disconnect()
-	s, err := m.OpenService(ServiceName)
-	if err != nil {
-		return fmt.Errorf("service %q is not installed", ServiceName)
-	}
 	defer s.Close()
 	return s.Start()
 }
 
 // Stop stops the running service.
 func Stop() error {
-	m, err := mgr.Connect()
+	m, s, err := connectService()
 	if err != nil {
-		return fmt.Errorf("service: connecting to SCM requires administrator rights: %w", err)
+		return err
 	}
 	defer m.Disconnect()
-	s, err := m.OpenService(ServiceName)
-	if err != nil {
-		return fmt.Errorf("service %q is not installed", ServiceName)
-	}
 	defer s.Close()
 	if _, err := s.Control(svc.Stop); err != nil {
 		return err
