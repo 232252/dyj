@@ -191,7 +191,7 @@ func (a *Advertiser) Start() error {
 	}
 
 	// Optional: rename out of a conflict (RFC 6762 §9).
-	if name, ok := a.probeName(conns); ok != "" {
+	if name, renamed := a.probeName(conns); renamed {
 		a.instance = name
 	}
 
@@ -539,12 +539,13 @@ func clampForInterface(buf []byte, c *ifaceConn) []byte {
 }
 
 // probeName performs a simplified RFC 6762 §8.1 conflict probe for the service
-// instance name and returns a non-conflicting name.
+// instance name and returns a non-conflicting name. The bool reports whether
+// a rename happened (the details are logged here).
 //
 // NOTE this is a partial implementation: it only observes; it does not defend
 // the name afterwards, and it does not probe the host name. hashicorp/mdns does
 // none of this at all (see docs/research/03-verified-blockers.md).
-func (a *Advertiser) probeName(conns []*ifaceConn) (string, string) {
+func (a *Advertiser) probeName(conns []*ifaceConn) (string, bool) {
 	instance := a.InstanceFQDN()
 	q := new(dns.Msg)
 	q.SetQuestion(strings.ToLower(instance), dns.TypeANY)
@@ -569,9 +570,11 @@ func (a *Advertiser) probeName(conns []*ifaceConn) (string, string) {
 			if err := msg.Unpack(buf[:n]); err != nil || !msg.Response {
 				continue
 			}
-			for _, rr := range append(append([]dns.RR{}, msg.Answer...), msg.Extra...) {
-				if strings.EqualFold(rr.Header().Name, instance) {
-					conflict = true
+			for _, set := range [][]dns.RR{msg.Answer, msg.Extra} {
+				for _, rr := range set {
+					if strings.EqualFold(rr.Header().Name, instance) {
+						conflict = true
+					}
 				}
 			}
 			if conflict {
@@ -584,7 +587,7 @@ func (a *Advertiser) probeName(conns []*ifaceConn) (string, string) {
 		}
 	}
 	if !conflict {
-		return a.cfg.Instance, ""
+		return a.cfg.Instance, false
 	}
 	a.logf("instance name %q is already in use, renaming", a.cfg.Instance)
 	for i := 2; i < 100; i++ {
@@ -592,9 +595,9 @@ func (a *Advertiser) probeName(conns []*ifaceConn) (string, string) {
 		if _, err := dns.NewRR(fmt.Sprintf("%s.local.", candidate)); err != nil {
 			continue
 		}
-		return candidate, fmt.Sprintf("renamed to %q (RFC 6762 §9)", candidate)
+		return candidate, true
 	}
-	return a.cfg.Instance, ""
+	return a.cfg.Instance, false
 }
 
 // ---------------------------------------------------------------------------
