@@ -126,26 +126,32 @@ func (c *Controller) Role() string {
 	return c.role
 }
 
-// Poll refreshes state once. Exported for tests; PollLoop calls it.
-func (c *Controller) Poll(ctx context.Context) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.opts.AdminURL+"/admin/api/status", nil)
+// getJSON GETs an admin endpoint into v. False on any failure — every
+// caller degrades to its previous state rather than failing the tray.
+func (c *Controller) getJSON(ctx context.Context, path string, limit int64, v any) bool {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.opts.AdminURL+path, nil)
 	if err != nil {
-		c.setState(StateDown, 0)
-		return
+		return false
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		c.setState(StateDown, 0)
-		return
+		return false
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		c.setState(StateDown, 0)
-		return
+		return false
 	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, limit))
+	if err != nil {
+		return false
+	}
+	return json.Unmarshal(body, v) == nil
+}
+
+// Poll refreshes state once. Exported for tests; PollLoop calls it.
+func (c *Controller) Poll(ctx context.Context) {
 	var sr statusResponse
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil || json.Unmarshal(body, &sr) != nil {
+	if !c.getJSON(ctx, "/admin/api/status", 1<<20, &sr) {
 		c.setState(StateDown, 0)
 		return
 	}
@@ -167,21 +173,8 @@ func (c *Controller) Poll(ctx context.Context) {
 // pollRole refreshes the configured role (best-effort: an old server or
 // a hiccup keeps the previous value, the menu just stays as it was).
 func (c *Controller) pollRole(ctx context.Context) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.opts.AdminURL+"/admin/api/config", nil)
-	if err != nil {
-		return
-	}
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return
-	}
 	var cr configResponse
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
-	if err != nil || json.Unmarshal(body, &cr) != nil {
+	if !c.getJSON(ctx, "/admin/api/config", 1<<16, &cr) {
 		return
 	}
 	c.mu.Lock()
@@ -190,24 +183,10 @@ func (c *Controller) pollRole(ctx context.Context) {
 }
 
 func (c *Controller) pollPin(ctx context.Context) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.opts.AdminURL+"/admin/api/pairing", nil)
-	if err != nil {
-		return
-	}
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return
-	}
 	var pr pairingResponse
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
-	if err != nil || json.Unmarshal(body, &pr) != nil {
-		return
+	if c.getJSON(ctx, "/admin/api/pairing", 1<<16, &pr) {
+		c.setPin(pr.PIN)
 	}
-	c.setPin(pr.PIN)
 }
 
 func (c *Controller) setPin(pin string) {
