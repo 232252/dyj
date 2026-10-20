@@ -331,6 +331,20 @@ func (w *Writer) writeRows(p *Page) error {
 	return err
 }
 
+// pixEqual compares the bpp-byte pixels at row[i] and row[j]. The PackBits
+// inner loop tests 1-3 bytes at a time, where a bytes.Equal call costs more
+// in setup than the comparison itself (profile: 60% of encode time).
+func pixEqual(row []byte, i, j, bpp int) bool {
+	switch bpp {
+	case 1:
+		return row[i] == row[j]
+	case 3:
+		return row[i] == row[j] && row[i+1] == row[j+1] && row[i+2] == row[j+2]
+	default:
+		return bytes.Equal(row[i:i+bpp], row[j:j+bpp])
+	}
+}
+
 // encodeRow applies modified PackBits to one row.
 func encodeRow(out []byte, row []byte, bpp int) []byte {
 	i := 0
@@ -345,11 +359,11 @@ func encodeRow(out []byte, row []byte, bpp int) []byte {
 			continue
 		}
 
-		if bytes.Equal(row[start:start+bpp], row[i:i+bpp]) {
+		if pixEqual(row, start, i, bpp) {
 			// Repeating pixel run, 2..128 pixels.
 			count := 2
 			i += bpp
-			for count < 128 && i < len(row)-bpp && bytes.Equal(row[i:i+bpp], row[i+bpp:i+2*bpp]) {
+			for count < 128 && i < len(row)-bpp && pixEqual(row, i, i+bpp, bpp) {
 				count++
 				i += bpp
 			}
@@ -363,7 +377,7 @@ func encodeRow(out []byte, row []byte, bpp int) []byte {
 		// 0x00 form above).
 		count := 1
 		for count < 128 && i < len(row)-bpp {
-			if bytes.Equal(row[i:i+bpp], row[i+bpp:i+2*bpp]) {
+			if pixEqual(row, i, i+bpp, bpp) {
 				break
 			}
 			count++
