@@ -1,11 +1,11 @@
 // dyj-job-table：作业表。状态点+文字、相对时间（服务端无创建时间，记录本页
 // 首见时间）、行内“取消”仅 pending/held/processing 显示；空列表显示空态行。
 // 取消点击发 dyj-cancel {id}，由页面确认后调 API。
+import { esc } from '../api.js';
 import { t } from '../i18n/index.js';
 
 const seen = new Map(); // job id → 本页首见时刻
 const ACTIVE = new Set(['pending', 'held', 'processing']);
-const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 function ageText(ms) {
   const s = Math.max(0, Math.floor((Date.now() - ms) / 1000));

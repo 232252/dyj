@@ -2,6 +2,7 @@
 // 级别词（不只靠颜色）；可选 fix 建议命令渲染为代码块并附一键复制。
 import './dyj-icon.js';
 import { copyText } from './dyj-copy-field.js';
+import { esc } from '../api.js';
 import { t } from '../i18n/index.js';
 
 const LVL = {
@@ -14,8 +15,6 @@ const LVL = {
 // tone → design-token suffix（--dyj-<token>）
 const TONE_TOKEN = { ok: 'success', warn: 'warning', bad: 'danger', dim: 'text-dim' };
 const TONE_LINE = { ok: 'success', warn: 'warning', bad: 'danger', dim: 'border' };
-
-const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 class DyjDiagnostic extends HTMLElement {
   #check = null;

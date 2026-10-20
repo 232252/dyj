@@ -1,7 +1,7 @@
 // 帮助页（#/help，v0.4 research/14 §3.5）：全产品唯一放技术信息的地方。
 // 常见问题（人话）→ 运行自检（doctor）→ 导出诊断包 → 日志（折叠只读）→
 // 关于（版本/角色/服务端口，只在此处可见）。其余界面永不出现工程术语。
-import { getDiagnostics, exportDiag, getStatus, getConfig, errMessage } from '../api.js';
+import { getDiagnostics, exportDiag, getStatus, getConfig, errMessage, esc } from '../api.js';
 import { t } from '../i18n/index.js';
 import { showToast } from '../components/dyj-toast.js';
 import '../components/dyj-diagnostic.js';
@@ -85,7 +85,7 @@ class DyjPageHelp extends HTMLElement {
       const warn = list.filter((c) => c.level === 'warn').length;
       if (sum) sum.textContent = t('help_check_summary', { total: list.length, bad, warn });
     } catch (e) {
-      box.innerHTML = `<div class="dim">${errMessage(e)}</div>`;
+      box.innerHTML = `<div class="dim">${esc(errMessage(e))}</div>`;
     }
   }
 

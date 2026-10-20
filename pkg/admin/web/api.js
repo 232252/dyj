@@ -20,6 +20,12 @@ export class ApiError extends Error {
   }
 }
 
+// esc：动态文本进 innerHTML/属性前必须转义。错误文案与打印机名可能来自
+// 共享端（半可信方），未转义即插入会在本页（回环全权限）执行注入脚本。
+export const esc = (s) => String(s).replace(/[&<>"']/g, (c) => (
+  { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+));
+
 async function request(path, { method = 'GET', body } = {}) {
   const headers = {};
   if (body !== undefined) headers['Content-Type'] = 'application/json';

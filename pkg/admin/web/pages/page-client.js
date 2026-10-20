@@ -4,7 +4,7 @@
 // host:port；已安装每行带实时状态（就绪/服务端不在线/已移除/配对被撤销）。
 import {
   scanServices, pairWith, installQueue, removeQueue, testQueue,
-  getAddedPrinters, getConfig, saveConfig, errMessage,
+  getAddedPrinters, getConfig, saveConfig, errMessage, esc,
 } from '../api.js';
 import { t } from '../i18n/index.js';
 import { showToast } from '../components/dyj-toast.js';
@@ -104,7 +104,7 @@ class DyjPageClient extends HTMLElement {
         // 扫描失败也不能把「按地址添加」藏掉：mesh/VPN 上组播本来就会失败，
         // 地址框是唯一入口。
         body.innerHTML = `
-          <div class="empty">${errMessage(e)}</div>
+          <div class="empty">${esc(errMessage(e))}</div>
           <div class="nav"><dyj-button id="rescan">${t('client_rescan')}</dyj-button></div>`;
         body.querySelector('#rescan').addEventListener('click', () => {
           this.#services = null;
@@ -319,10 +319,10 @@ class DyjPageClient extends HTMLElement {
     const ok = this.#flow.results.filter((r) => r.ok);
     const bad = this.#flow.results.filter((r) => !r.ok);
     body.innerHTML = `
-      ${ok.map((r) => `<p class="okline">✓ ${t('client_install_ok', { name: r.queue_name })}</p>`).join('')}
-      ${bad.map((r) => `<p class="badline">✗ ${t('client_install_fail')}「${r.queue_name}」：${r.err}</p>`).join('')}
+      ${ok.map((r) => `<p class="okline">✓ ${t('client_install_ok', { name: esc(r.queue_name) })}</p>`).join('')}
+      ${bad.map((r) => `<p class="badline">✗ ${t('client_install_fail')}「${esc(r.queue_name)}」：${esc(r.err)}</p>`).join('')}
       <div class="nav">
-        ${ok.map((r) => `<dyj-button data-test="${r.queue_name}" variant="secondary">${t('client_test_page')}</dyj-button>`).join('')}
+        ${ok.map((r) => `<dyj-button data-test="${esc(r.queue_name)}" variant="secondary">${t('client_test_page')}</dyj-button>`).join('')}
         <dyj-button id="done" variant="primary">${t('client_done')}</dyj-button>
       </div>`;
     body.querySelectorAll('[data-test]').forEach((btn) => {

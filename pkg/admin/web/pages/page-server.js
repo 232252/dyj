@@ -5,7 +5,7 @@
 import {
   getConfig, saveConfig, getLocalPrinters, getPairing, rotatePairing,
   getDevices, revokeDevice, getJobs, cancelJob, pausePrinter, resumePrinter,
-  errMessage,
+  errMessage, esc,
 } from '../api.js';
 import { t } from '../i18n/index.js';
 import { showToast } from '../components/dyj-toast.js';
@@ -83,7 +83,7 @@ class DyjPageServer extends HTMLElement {
     this.#rows = lpRes.status === 'fulfilled' ? (lpRes.value.printers || []) : null;
     this.#mode = (this.#cfg.printers || []).length > 0 ? 'home' : 'pick';
     if (lpRes.status === 'rejected') {
-      root.innerHTML = `<div class="body"><div class="empty">${errMessage(lpRes.reason)}</div></div>
+      root.innerHTML = `<div class="body"><div class="empty">${esc(errMessage(lpRes.reason))}</div></div>
         <div class="nav"><dyj-button id="rescan">${t('client_rescan')}</dyj-button></div>`;
       this.querySelector('#rescan').addEventListener('click', () => this.#load());
       return;
