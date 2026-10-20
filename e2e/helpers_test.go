@@ -2,7 +2,6 @@ package e2e
 
 import (
 	"bytes"
-	"compress/gzip"
 	"io"
 
 	"github.com/232252/dyj/pkg/render"
@@ -15,7 +14,5 @@ func renderTextPages(text string) ([]*render.Page, error) {
 }
 
 func newPWGWriter(w io.Writer) (*render.Writer, error) { return render.NewWriter(w) }
-
-func newGzipWriter(w io.Writer) *gzip.Writer { return gzip.NewWriter(w) }
 
 var _ = bytes.MinRead

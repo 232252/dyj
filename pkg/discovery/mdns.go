@@ -303,11 +303,10 @@ func (a *Advertiser) records(c *ifaceConn, q *dns.Question) []dns.RR {
 
 	switch {
 	case qName == BrowseService:
-		// _services._dns-sd._udp.local. PTR -> service types
-		for _, st := range []string{IPPService + ".local.", "_http._tcp.local."} {
-			return []dns.RR{&dns.PTR{Hdr: hdr(BrowseService, dns.TypePTR, ttl, false), Ptr: st}}
-		}
-		return nil
+		// _services._dns-sd._udp.local. PTR -> the service types we
+		// actually announce (see allRecords); listing anything else here
+		// would send browsers down a type with no instance to find.
+		return []dns.RR{&dns.PTR{Hdr: hdr(BrowseService, dns.TypePTR, ttl, false), Ptr: svc}}
 
 	case qName == strings.ToLower(IPPSubService+".local."):
 		return []dns.RR{&dns.PTR{Hdr: hdr(IPPSubService+".local.", dns.TypePTR, ttl, false), Ptr: instance}}
@@ -316,7 +315,7 @@ func (a *Advertiser) records(c *ifaceConn, q *dns.Question) []dns.RR {
 		return []dns.RR{&dns.PTR{Hdr: hdr(svc, dns.TypePTR, ttl, false), Ptr: instance}}
 
 	case qName == strings.ToLower(instance):
-		return a.instanceRecords(c, instance, nil)
+		return a.instanceRecords(c, instance)
 
 	case qName == strings.ToLower(hostName) || qName == strings.ToLower(a.host):
 		return a.hostRecords(c, q.Qtype)
@@ -324,35 +323,21 @@ func (a *Advertiser) records(c *ifaceConn, q *dns.Question) []dns.RR {
 	return nil
 }
 
-// instanceRecords builds SRV + TXT (+ A/AAAA when the type is ANY/SRV).
-func (a *Advertiser) instanceRecords(c *ifaceConn, instance string, qtypes []uint16) []dns.RR {
-	wantAny := len(qtypes) == 0
-	hostName := a.hostFor(c)
-	var out []dns.RR
-
-	for _, qt := range append(qtypes, dns.TypeANY) {
-		switch qt {
-		case dns.TypeANY, dns.TypeSRV:
-			out = append(out, &dns.SRV{
-				Hdr:      hdr(instance, dns.TypeSRV, a.ttl, true),
-				Priority: 0,
-				Weight:   0,
-				Port:     uint16(a.cfg.Port),
-				Target:   hostName,
-			})
-			if !wantAny {
-				break
-			}
-		}
-		if qt == dns.TypeANY || qt == dns.TypeTXT {
-			out = append(out, &dns.TXT{Hdr: hdr(instance, dns.TypeTXT, a.ttl, true), Txt: a.cfg.TXT})
-		}
-		if !wantAny {
-			continue
-		}
-		out = append(out, a.hostRecords(c, dns.TypeANY)...)
+// instanceRecords builds SRV + TXT + host A/AAAA for one instance —
+// RFC 6763 "ANY" semantics, so a single query resolves the service end
+// to end without extra A/AAAA round-trips.
+func (a *Advertiser) instanceRecords(c *ifaceConn, instance string) []dns.RR {
+	out := []dns.RR{
+		&dns.SRV{
+			Hdr:      hdr(instance, dns.TypeSRV, a.ttl, true),
+			Priority: 0,
+			Weight:   0,
+			Port:     uint16(a.cfg.Port),
+			Target:   a.hostFor(c),
+		},
+		&dns.TXT{Hdr: hdr(instance, dns.TypeTXT, a.ttl, true), Txt: a.cfg.TXT},
 	}
-	return out
+	return append(out, a.hostRecords(c, dns.TypeANY)...)
 }
 
 func (a *Advertiser) hostRecords(c *ifaceConn, qtype uint16) []dns.RR {
@@ -361,8 +346,13 @@ func (a *Advertiser) hostRecords(c *ifaceConn, qtype uint16) []dns.RR {
 	add4 := qtype == dns.TypeANY || qtype == dns.TypeA
 	add6 := qtype == dns.TypeANY || qtype == dns.TypeAAAA
 	for _, ip := range a.cfg.IPs {
-		if ip4 := ip.To4(); ip4 != nil && add4 {
-			out = append(out, &dns.A{Hdr: hdr(hostName, dns.TypeA, a.ttl, true), A: ip4})
+		if ip4 := ip.To4(); ip4 != nil {
+			// A v4 address is only ever advertised as A, never as a
+			// v4-mapped AAAA (::ffff:/96), which clients handle poorly
+			// and Avahi never emits.
+			if add4 {
+				out = append(out, &dns.A{Hdr: hdr(hostName, dns.TypeA, a.ttl, true), A: ip4})
+			}
 			continue
 		}
 		if ip16 := ip.To16(); ip16 != nil && add6 {

@@ -521,13 +521,3 @@ func contains(hay []string, needle string) bool {
 	}
 	return false
 }
-
-// lenHex renders n as a 2-octet big-endian hex string.
-func lenHex(n int) string {
-	return string([]byte{
-		"0123456789abcdef"[(n>>12)&0xf],
-		"0123456789abcdef"[(n>>8)&0xf],
-		"0123456789abcdef"[(n>>4)&0xf],
-		"0123456789abcdef"[n&0xf],
-	})
-}

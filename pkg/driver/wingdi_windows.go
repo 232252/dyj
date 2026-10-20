@@ -40,9 +40,6 @@ const (
 	dmOrientation  = 0x00000001
 	dmPaperSize    = 0x00000002
 	dmCopies       = 0x00000100
-
-	dmOrientPortrait  = 1
-	dmOrientLandscape = 2
 )
 
 // DMPAPER codes for the media set we advertise.

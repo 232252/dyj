@@ -557,18 +557,6 @@ func TestJobOpsWithoutSinkAreHonest(t *testing.T) {
 	}
 }
 
-// errReader feeds a failing stream to prove a mid-document IO error does
-// not leave the server hung or panicking.
-type errReader struct{ n int }
-
-func (e *errReader) Read(p []byte) (int, error) {
-	e.n++
-	if e.n > 2 {
-		return 0, errors.New("simulated connection reset")
-	}
-	return len(p), nil
-}
-
 func TestSinkErrorIsReported(t *testing.T) {
 	sink := newFakeSink()
 	sink.addErr = errors.New("disk full")

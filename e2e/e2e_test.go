@@ -209,17 +209,4 @@ func makeTextPages(text string) ([]*page, error) {
 	return renderTextPages(text)
 }
 
-func gzipBytes(t *testing.T, data []byte) []byte {
-	t.Helper()
-	var buf bytes.Buffer
-	zw := newGzipWriter(&buf)
-	if _, err := zw.Write(data); err != nil {
-		t.Fatal(err)
-	}
-	if err := zw.Close(); err != nil {
-		t.Fatal(err)
-	}
-	return buf.Bytes()
-}
-
 var _ = io.EOF
