@@ -53,7 +53,7 @@
 //	Enum(name, v)            Enums(name, ...)     Integer / Integers
 //	Bool                     Resolution / Resolutions
 //	RangeOfInteger           DateTime
-//	NoValue / Unsupported
+//	Unsupported
 //
 // Tag constants: TagInteger, TagBoolean, TagEnum, TagDateTime,
 // TagResolution, TagRangeOfInt, TagText, TagName, TagKeyword, TagURI,

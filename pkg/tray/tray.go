@@ -222,20 +222,6 @@ func (c *Controller) setState(s State, queued int) {
 	c.mu.Unlock()
 }
 
-// PollLoop refreshes until ctx is done.
-func (c *Controller) PollLoop(ctx context.Context) {
-	t := time.NewTicker(c.opts.PollInterval)
-	defer t.Stop()
-	for {
-		c.Poll(ctx)
-		select {
-		case <-ctx.Done():
-			return
-		case <-t.C:
-		}
-	}
-}
-
 // SetPaused pauses (true) or resumes (false) sharing via the admin API.
 func (c *Controller) SetPaused(ctx context.Context, paused bool) error {
 	ep := "resume"

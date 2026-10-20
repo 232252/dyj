@@ -252,48 +252,6 @@ func (s *Server) writeIPP(w http.ResponseWriter, resp *Response) {
 	}
 }
 
-// NormalizePath is used by tests to assert the permissive routing.
-func NormalizePath(p string) string {
-	if p == "" {
-		return "/"
-	}
-	if p[0] != '/' {
-		return "/" + p
-	}
-	return p
-}
-
-// SchemeHostOf extracts scheme://host:port from an ipp(s) URI.
-func SchemeHostOf(uri string) (host string, secure bool) {
-	secure = len(uri) >= 5 && uri[:5] == "ipps:"
-	s := uri
-	if i := indexSubstring(s, "://"); i >= 0 {
-		s = s[i+3:]
-	}
-	if i := indexByteStr(s, '/'); i >= 0 {
-		s = s[:i]
-	}
-	return s, secure
-}
-
-func indexSubstring(s, sub string) int {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return i
-		}
-	}
-	return -1
-}
-
-func indexByteStr(s string, c byte) int {
-	for i := 0; i < len(s); i++ {
-		if s[i] == c {
-			return i
-		}
-	}
-	return -1
-}
-
 // StatusProvider lets a JobSink hand its Status method to the Server
 // without the server importing the concrete type.
 type StatusProvider interface {

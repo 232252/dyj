@@ -313,12 +313,6 @@ func DateTime(name string, year int16, month, day, hour, minute, second, deciSec
 	return Attribute{Tag: TagDateTime, Name: name, Values: [][]byte{v}}
 }
 
-// NoValue builds an out-of-band "no-value" attribute (tag 0x13) with a
-// zero-length value, per RFC 8010 §3.5.2 Table 3 and appendix A.3.
-func NoValue(name string) Attribute {
-	return Attribute{Tag: TagNoValue, Name: name, Values: [][]byte{{}}}
-}
-
 // Unsupported builds an out-of-band "unsupported" attribute (tag 0x10)
 // with a zero-length value, used in the unsupported-attributes group
 // (RFC 8010 §3.5.2 Table 3, appendix A.3).
@@ -400,11 +394,6 @@ func MarshalAttributes(attrs []Attribute) ([]byte, error) {
 		return nil, err
 	}
 	return buf.b, nil
-}
-
-// EncodeAttributeInto is the io.Writer convenience form of Attribute.Write.
-func EncodeAttributeInto(w io.Writer, a Attribute) error {
-	return a.Write(w)
 }
 
 func (a Attribute) validate() error {

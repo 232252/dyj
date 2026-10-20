@@ -193,24 +193,3 @@ func emit(ctx context.Context, pgs []*render.Page, out chan<- *render.Page) erro
 	}
 	return nil
 }
-
-// EachCopy expands a page stream by the requested copy count.
-func EachCopy(pages <-chan *render.Page, copies int) <-chan *render.Page {
-	if copies <= 1 {
-		return pages
-	}
-	out := make(chan *render.Page, 1)
-	go func() {
-		defer close(out)
-		var all []*render.Page
-		for p := range pages {
-			all = append(all, p)
-		}
-		for c := 0; c < copies; c++ {
-			for _, p := range all {
-				out <- p
-			}
-		}
-	}()
-	return out
-}

@@ -34,17 +34,6 @@ func (s *Server) BuildPrinterAttrs(p Printer, want []string) []Attr {
 	return out
 }
 
-// BuildPrinterAttrNames lists the attribute names the table can emit. Useful
-// for tests and diagnostics.
-func BuildPrinterAttrNames(p Printer) []string {
-	attrs := attributes.BuildPrinterAttributes(p.info(nil))
-	out := make([]string, 0, len(attrs))
-	for _, a := range attrs {
-		out = append(out, a.Name)
-	}
-	return out
-}
-
 // ValidatePrinter checks the table against the IPP Everywhere required set, so
 // a missing mandatory attribute fails loudly at startup instead of silently
 // producing a printer no client will accept.

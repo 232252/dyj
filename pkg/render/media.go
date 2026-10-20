@@ -74,9 +74,3 @@ func A4() Media {
 	m, _ := MediaFromPWG("iso_a4_210x297mm")
 	return m
 }
-
-// Letter is the North-American default.
-func Letter() Media {
-	m, _ := MediaFromPWG("na_letter_8.5x11in")
-	return m
-}

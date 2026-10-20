@@ -76,17 +76,6 @@ func (c ColorSpace) PWGName() string {
 	}
 }
 
-// ColorSpaceFromPWG resolves a pwg-raster-document-type keyword.
-func ColorSpaceFromPWG(name string) (ColorSpace, bool) {
-	switch name {
-	case "sgray_8":
-		return SGray, true
-	case "srgb_8":
-		return SRGB, true
-	}
-	return 0, false
-}
-
 // PageHeader is the subset of the PWG page header dyj consumes. The
 // remaining ~1700 bytes are structural (strings, vendor fields) and are
 // preserved as zeros on write, exactly like CUPS does.
@@ -274,9 +263,6 @@ func NewWriter(w io.Writer) (*Writer, error) {
 	}
 	return &Writer{w: w}, nil
 }
-
-// PagesWritten reports how many pages have been emitted.
-func (w *Writer) PagesWritten() uint32 { return w.count }
 
 // WritePage serializes one page. TotalPageCount is stamped into the
 // header as-is (callers that know the final page count set it; 0 means

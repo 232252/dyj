@@ -28,7 +28,6 @@ package ipp
 import (
 	"io"
 	"os"
-	"sync"
 
 	"github.com/232252/dyj/pkg/attributes"
 )
@@ -92,11 +91,6 @@ func EncodeAttrs(w io.Writer, g Group) error {
 		return err
 	}
 	return attributes.WriteAttributes(w, g.Attrs)
-}
-
-// EncodeAttrsNoDelim writes attributes without a leading group delimiter.
-func EncodeAttrsNoDelim(w io.Writer, attrs []Attr) error {
-	return attributes.WriteAttributes(w, attrs)
 }
 
 // ---------------------------------------------------------------------------
@@ -281,24 +275,6 @@ func (p Printer) info(status printerStatus) attributes.PrinterInfo {
 
 // printerStatus is the optional dynamic-state hook wired from the spooler.
 type printerStatus = func() (accepting bool, queued int32, reasons []string)
-
-// ---------------------------------------------------------------------------
-// Static per-process state
-// ---------------------------------------------------------------------------
-
-var (
-	stateMu    sync.Mutex
-	jobCounter int32
-)
-
-// NextJobID hands out monotonically increasing job ids (used by tests and
-// by sinks that do not keep their own counter).
-func NextJobID() int32 {
-	stateMu.Lock()
-	defer stateMu.Unlock()
-	jobCounter++
-	return jobCounter
-}
 
 // DescribeOperation renders an operation-id for logs.
 func DescribeOperation(op uint16) string {

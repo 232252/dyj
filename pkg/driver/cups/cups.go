@@ -51,13 +51,6 @@ type Backend struct {
 	run func(ctx context.Context, argv []string) (stdout string, err error)
 }
 
-// Available reports whether the cups-client tools exist on this machine.
-func Available() bool {
-	_, lpErr := exec.LookPath("lp")
-	_, statErr := exec.LookPath("lpstat")
-	return lpErr == nil && statErr == nil
-}
-
 // New builds a backend for queue and verifies the tools exist.
 func New(queue string) (*Backend, error) {
 	if err := validToken(queue, "queue"); err != nil {
