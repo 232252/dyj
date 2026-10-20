@@ -1,6 +1,6 @@
 module github.com/232252/dyj
 
-go 1.26.4
+go 1.27.3
 
 require (
 	fyne.io/systray v1.12.2
