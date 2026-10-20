@@ -13,7 +13,9 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -22,6 +24,18 @@ import (
 
 // StatusOK is the successful-ok status code (RFC 8011 appendix B).
 const StatusOK uint16 = 0x0000
+
+// HTTPStatusError reports a non-200 answer from the printer's HTTP
+// transport — for example the 401 a dead pairing token produces. Callers
+// that need the status use errors.As rather than string matching.
+type HTTPStatusError struct {
+	Status int
+	URL    string
+}
+
+func (e *HTTPStatusError) Error() string {
+	return fmt.Sprintf("client: HTTP %d from %s", e.Status, e.URL)
+}
 
 // Client is one IPP printer endpoint.
 type Client struct {
@@ -36,8 +50,7 @@ type Client struct {
 
 // Parse builds a Client for a printer URI.
 func Parse(uri, user string) (*Client, error) {
-	c, err := parse(uri, user, false)
-	return c, err
+	return parse(uri, user, false)
 }
 
 // ParseInsecure builds a Client that accepts self-signed ipps://
@@ -59,7 +72,7 @@ func parse(uri, user string, insecure bool) (*Client, error) {
 	if !found || path == "" {
 		return nil, fmt.Errorf("client: URI %q has no resource path (want e.g. ipp://host:631/ipp/print)", uri)
 	}
-	if _, _, err := splitHostPort(hostport); err != nil {
+	if err := validHostPort(hostport); err != nil {
 		return nil, fmt.Errorf("client: URI %q has a malformed host:port", uri)
 	}
 	transport := &http.Transport{}
@@ -69,12 +82,18 @@ func parse(uri, user string, insecure bool) (*Client, error) {
 	return &Client{URI: uri, User: user, HTTP: &http.Client{Timeout: 10 * time.Minute, Transport: transport}}, nil
 }
 
-func splitHostPort(hostport string) (string, string, error) {
-	i := strings.LastIndex(hostport, ":")
-	if i < 0 {
-		return hostport, "", fmt.Errorf("no port")
+// validHostPort checks the authority component: a host (bracketed for
+// IPv6) plus a numeric port 1-65535.
+func validHostPort(hostport string) error {
+	_, port, err := net.SplitHostPort(hostport)
+	if err != nil {
+		return err
 	}
-	return hostport[:i], hostport[i+1:], nil
+	n, err := strconv.Atoi(port)
+	if err != nil || n < 1 || n > 65535 {
+		return fmt.Errorf("port %q is not 1-65535", port)
+	}
+	return nil
 }
 
 // httpURL maps the ipp(s) scheme onto http(s) for the transport.
@@ -267,7 +286,7 @@ func (c *Client) roundTrip(op uint16, opAttrs, jobAttrs []attributes.Attribute, 
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("client: HTTP %d from %s", resp.StatusCode, c.httpURL())
+		return nil, &HTTPStatusError{Status: resp.StatusCode, URL: c.httpURL()}
 	}
 	return attributes.DecodeMessageStream(resp.Body)
 }

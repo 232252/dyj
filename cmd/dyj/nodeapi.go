@@ -11,6 +11,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -444,8 +445,9 @@ func probeIPP(host string, port int, path string, timeout time.Duration) ippProb
 	c.HTTP.Timeout = timeout
 	msg, err := c.GetPrinterAttributes("printer-name")
 	if err != nil {
-		if code := httpStatusFromClientErr(err); code == http.StatusUnauthorized {
-			return ippProbe{Alive: true, Revoked: true, Status: code}
+		var he *client.HTTPStatusError
+		if errors.As(err, &he) && he.Status == http.StatusUnauthorized {
+			return ippProbe{Alive: true, Revoked: true, Status: he.Status}
 		}
 		return ippProbe{}
 	}
@@ -454,31 +456,6 @@ func probeIPP(host string, port int, path string, timeout time.Duration) ippProb
 		name = attributes.GroupFirstString(g, "printer-name")
 	}
 	return ippProbe{Alive: true, Name: name, Status: http.StatusOK}
-}
-
-// httpStatusFromClientErr pulls the status out of client.Client's
-// "HTTP 401 from ..." errors. Other failures return 0.
-func httpStatusFromClientErr(err error) int {
-	if err == nil {
-		return 0
-	}
-	const marker = "HTTP "
-	s := err.Error()
-	i := strings.Index(s, marker)
-	if i < 0 {
-		return 0
-	}
-	n := 0
-	for _, r := range s[i+len(marker):] {
-		if r < '0' || r > '9' {
-			break
-		}
-		n = n*10 + int(r-'0')
-		if n > 999 {
-			return 0
-		}
-	}
-	return n
 }
 
 // scanEntries turns discovered services into add-printer rows: it drops
