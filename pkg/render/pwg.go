@@ -22,6 +22,7 @@ package render
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -319,7 +320,7 @@ func (w *Writer) writeRows(p *Page) error {
 		// to 0x00 — which a reader decodes as ONE row, desynchronising
 		// the whole stream.
 		run := 1
-		for run < 256 && y+run < p.Header.Height && bytesEqual(p.Row(y+run), row) {
+		for run < 256 && y+run < p.Header.Height && bytes.Equal(p.Row(y+run), row) {
 			run++
 		}
 		out.buf = append(out.buf, byte(run-1))
@@ -345,11 +346,11 @@ func encodeRow(out []byte, row []byte, bpp int) []byte {
 			continue
 		}
 
-		if pixelsEqual(row[start:start+bpp], row[i:i+bpp]) {
+		if bytes.Equal(row[start:start+bpp], row[i:i+bpp]) {
 			// Repeating pixel run, 2..128 pixels.
 			count := 2
 			i += bpp
-			for count < 128 && i < len(row)-bpp && pixelsEqual(row[i:i+bpp], row[i+bpp:i+2*bpp]) {
+			for count < 128 && i < len(row)-bpp && bytes.Equal(row[i:i+bpp], row[i+bpp:i+2*bpp]) {
 				count++
 				i += bpp
 			}
@@ -363,7 +364,7 @@ func encodeRow(out []byte, row []byte, bpp int) []byte {
 		// 0x00 form above).
 		count := 1
 		for count < 128 && i < len(row)-bpp {
-			if pixelsEqual(row[i:i+bpp], row[i+bpp:i+2*bpp]) {
+			if bytes.Equal(row[i:i+bpp], row[i+bpp:i+2*bpp]) {
 				break
 			}
 			count++
@@ -421,20 +422,6 @@ func zeroStr(b []byte) string {
 	}
 	return string(b)
 }
-
-func pixelsEqual(a, b []byte) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
-
-func bytesEqual(a, b []byte) bool { return pixelsEqual(a, b) }
 
 type bytesWriter struct{ buf []byte }
 
