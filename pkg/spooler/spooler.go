@@ -262,7 +262,7 @@ func (s *Spooler) AddDocument(id int32, doc ipp.Document, last bool) error {
 	rdr := doc.Data
 	index := len(j.Docs)
 	format := doc.Format
-	if format == "" || format == "application/octet-stream" {
+	if format == "" {
 		format = "application/octet-stream"
 	}
 	s.mu.Unlock()
@@ -379,7 +379,11 @@ func (s *Spooler) Status() (bool, int32, []string) {
 	}
 	queued := 0
 	for _, id := range s.order {
-		switch s.jobs[id].State {
+		j := s.jobs[id]
+		if j == nil {
+			continue
+		}
+		switch j.State {
 		case ipp.JobStatePending, ipp.JobStateProcessing, ipp.JobStateHeld:
 			queued++
 		}
