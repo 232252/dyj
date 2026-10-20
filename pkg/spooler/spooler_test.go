@@ -3,9 +3,9 @@ package spooler
 import (
 	"bytes"
 	"compress/gzip"
-	"fmt"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -239,14 +239,24 @@ func TestSnapshotFiltersAndPrunes(t *testing.T) {
 		waitForState(t, s, id, ipp.JobStateCompleted, 3*time.Second)
 	}
 
-	if got := len(s.Snapshot("completed")); got > 2 {
-		t.Fatalf("completed history = %d, pruned to 2 expected", got)
-	}
-	// Oldest jobs are gone entirely.
-	for _, id := range ids[:2] {
-		if _, ok := s.View(id); ok {
-			t.Errorf("job %d should have been pruned", id)
+	// prune() runs just after the state flips to Completed, so the
+	// invariant can lag waitForState above by a moment: poll for it
+	// instead of racing the worker.
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		pruned := len(s.Snapshot("completed")) <= 2
+		for _, id := range ids[:2] {
+			if _, ok := s.View(id); ok {
+				pruned = false
+			}
 		}
+		if pruned {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("completed history = %d, pruned to 2 expected", len(s.Snapshot("completed")))
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 	if _, ok := s.View(ids[3]); !ok {
 		t.Error("newest job must survive pruning")
