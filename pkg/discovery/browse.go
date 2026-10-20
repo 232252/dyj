@@ -240,16 +240,10 @@ func mergeFound(in []Found) []Found {
 }
 
 func appendUnique(dst []string, vals ...string) []string {
-	seen := map[string]bool{}
-	for _, d := range dst {
-		seen[d] = true
-	}
 	for _, v := range vals {
-		if v == "" || seen[v] {
-			continue
+		if v != "" && !slices.Contains(dst, v) {
+			dst = append(dst, v)
 		}
-		seen[v] = true
-		dst = append(dst, v)
 	}
 	return dst
 }
@@ -357,39 +351,52 @@ func txtToMap(txt []string) map[string]string {
 }
 
 // browseReference runs hashicorp/mdns's own client — the third-party check.
+// Interfaces are queried in parallel: each mdns.Query blocks for the full
+// timeout, so a serial loop doubled the scan latency per extra NIC.
 func browseReference(ifaces []*net.Interface, timeout time.Duration) []Found {
-	var out []Found
+	var (
+		mu  sync.Mutex
+		wg  sync.WaitGroup
+		out []Found
+	)
 	for _, ifi := range ifaces {
-		entries := make(chan *mdns.ServiceEntry, 16)
-		params := mdns.DefaultParams("_ipp._tcp")
-		params.Entries = entries
-		params.Timeout = timeout
-		params.DisableIPv6 = true
-		params.Interface = ifi
-		params.Logger = log.New(discardWriter{}, "", 0)
-		done := make(chan struct{})
-		go func() {
-			defer close(done)
-			for e := range entries {
-				var addrs []string
-				if e.AddrV4 != nil {
-					addrs = append(addrs, e.AddrV4.String())
+		wg.Add(1)
+		go func(ifi *net.Interface) {
+			defer wg.Done()
+			entries := make(chan *mdns.ServiceEntry, 16)
+			params := mdns.DefaultParams("_ipp._tcp")
+			params.Entries = entries
+			params.Timeout = timeout
+			params.DisableIPv6 = true
+			params.Interface = ifi
+			params.Logger = log.New(discardWriter{}, "", 0)
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				for e := range entries {
+					var addrs []string
+					if e.AddrV4 != nil {
+						addrs = append(addrs, e.AddrV4.String())
+					}
+					mu.Lock()
+					out = append(out, Found{
+						Instance: e.Name,
+						Host:     e.Host,
+						Port:     e.Port,
+						Addrs:    addrs,
+						TXT:      e.InfoFields,
+						TXTMap:   txtToMap(e.InfoFields),
+						Source:   "lib",
+					})
+					mu.Unlock()
 				}
-				out = append(out, Found{
-					Instance: e.Name,
-					Host:     e.Host,
-					Port:     e.Port,
-					Addrs:    addrs,
-					TXT:      e.InfoFields,
-					TXTMap:   txtToMap(e.InfoFields),
-					Source:   "lib",
-				})
-			}
-		}()
-		_ = mdns.Query(params)
-		close(entries)
-		<-done
+			}()
+			_ = mdns.Query(params)
+			close(entries)
+			<-done
+		}(ifi)
 	}
+	wg.Wait()
 	return out
 }
 
@@ -442,9 +449,11 @@ func ResolveName(ifaces []*net.Interface, name string, timeout time.Duration) (s
 			if err := msg.Unpack(rbuf[:n]); err != nil {
 				continue
 			}
-			for _, rr := range append(append([]dns.RR{}, msg.Answer...), msg.Extra...) {
-				if a, ok := rr.(*dns.A); ok && strings.EqualFold(a.Hdr.Name, name) {
-					return a.A.String(), nil
+			for _, set := range [][]dns.RR{msg.Answer, msg.Extra} {
+				for _, rr := range set {
+					if a, ok := rr.(*dns.A); ok && strings.EqualFold(a.Hdr.Name, name) {
+						return a.A.String(), nil
+					}
 				}
 			}
 		}
