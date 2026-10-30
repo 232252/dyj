@@ -33,6 +33,11 @@ epoch: 1
 contents:
   - src: dist/dyj-linux-${TARGETARCH}
     dst: /usr/bin/dyj
+    # Pin the mode: on Windows build hosts the source file carries no
+    # exec bit (NTFS), and nfpm would otherwise pack 0644 — the unit
+    # then dies at systemd's EXEC step (status=203).
+    file_info:
+      mode: 0755
   - src: packaging/linux/dyj.service
     dst: /usr/lib/systemd/system/dyj.service
   - src: packaging/linux/dyj.avahi-service
