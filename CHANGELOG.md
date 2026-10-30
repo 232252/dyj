@@ -3,6 +3,19 @@
 All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/); versioning: semver.
 
+## [0.4.3] — 2026-10-30
+
+### Fixed
+- **Linux/macOS 装包后服务起不来（deb/rpm 安装后点图标没反应）**: 打包的
+  systemd/launchd 单元直接运行 `dyj service run`，而全新安装时
+  `service.json` 还不存在（Windows 安装器会跑 `dyj service install`，
+  deb/rpm 的 postinstall 没有），服务每 5 秒崩溃重启，6631 永远不监听，
+  桌面图标（`dyj open` → 管理页）自然毫无反应。`service run` 现在对
+  缺失的 options 文件回退为引导默认配置（`{}`：向导角色 + 标准端口），
+  服务正常起来后由浏览器向导完成并持久化真实配置——与裸运行 `dyj`
+  的"首次运行=引导"契约一致。读取失败的其它错误仍然致命，避免覆盖
+  真正的机器状态问题。三个平台（SCM/systemd/launchd）共用此路径。
+
 ## [0.4.2] — 2026-10-17
 
 ### Added
