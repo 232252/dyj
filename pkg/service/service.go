@@ -48,9 +48,13 @@ func stateDir() (string, error) {
 	}
 }
 
+// stateDirFunc is the indirection tests use to point the package at a
+// scratch directory instead of the real machine-wide state dir.
+var stateDirFunc = stateDir
+
 // SaveOptions persists the serve options JSON.
 func SaveOptions(raw string) error {
-	dir, err := stateDir()
+	dir, err := stateDirFunc()
 	if err != nil {
 		return err
 	}
@@ -67,7 +71,7 @@ func SaveOptions(raw string) error {
 
 // LoadOptions reads the persisted serve options JSON.
 func LoadOptions() (string, error) {
-	dir, err := stateDir()
+	dir, err := stateDirFunc()
 	if err != nil {
 		return "", err
 	}
@@ -81,10 +85,21 @@ func LoadOptions() (string, error) {
 // Run is the service entry point: load persisted options and serve
 // until ctx is canceled. Platform files decide whether ctx comes from
 // the SCM (Windows) or is a plain background context bridged to signals.
+//
+// A missing options file is a fresh package install — deb/rpm units and
+// a launchd daemon start `dyj service run` before anyone has run
+// `dyj service install` — so Run serves the bootstrap defaults ("{}":
+// wizard role, standard port) instead of crash-looping; the browser
+// wizard then completes (and persists) the real configuration. This
+// mirrors cmdLaunch, where a missing service.json means "first run:
+// bootstrap". Any other load error stays fatal.
 func Run(ctx context.Context, serve ServeFunc) error {
 	raw, err := LoadOptions()
 	if err != nil {
-		return err
+		if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		raw = "{}"
 	}
 	return serve(ctx, raw)
 }
