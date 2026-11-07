@@ -82,6 +82,21 @@
 - **原因与处理**：配置端口被占（常见：旧实例还在跑）→ dyj 自动换到 端口+1..+9，
   banner/`dyj open` 会显示实际端口；`dyj open` 自动探测活动端口。
 
+## 症状 8：Win7/XP 机器装不上 / 起不来
+
+- **原因与处理**：三条互不相同的线，按系统对号：
+  - **XP / Vista**：不支持（Go 运行时层面不可能，无计划支持）。
+  - **Win7/8/8.1（任意位数）用 `dyj-setup-x64.exe` 装不上**：现代安装器只服务
+    Windows 10+（Go 1.21+ 二进制在 Win7 上无法启动）。改用发布页的
+    `dyj-legacy-win7-{386,amd64}.zip`（Go 1.20.14 构建，最低 Win7 SP1），
+    按 `README-Win7.txt` 走 install-legacy.bat。
+  - **Win7-32 拿到 amd64 二进制**："不是有效的 Win32 应用程序" → 下载 386 版。
+- **Win7 限制**：legacy 版仅支持「打印服务器」角色——在老电脑上添加 dyj
+  网络打印机（driverless 客户端）需要 Win8+ 的 PowerShell 打印 cmdlet 与
+  Win10 21H2+ 的 IPP Class Driver，Win7 上不存在，属 Windows 能力边界。
+- **Win7 管理页空白**：本机 IE11 不支持 Web Components；从其他设备的浏览器
+  打开 `http://这台电脑IP:6631/admin`，或本机装 Chrome ≤109。
+
 ## 事件速查（研究 13 §5.2 检查点全集）
 
 | 域 | 事件 | 含义 |

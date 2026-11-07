@@ -12,11 +12,13 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/232252/dyj/internal/winver"
 	"github.com/232252/dyj/pkg/service"
 	"github.com/232252/dyj/pkg/tray"
 )
 
 func main() {
+	winver.Guard()
 	port := 6631
 	if raw, err := service.LoadOptions(); err == nil {
 		var o struct {

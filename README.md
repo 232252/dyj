@@ -92,10 +92,19 @@ Linux/macOS 服务端把接在本机的真实打印机共享出去（走本地 C
 
 | | |
 | --- | --- |
-| 二进制 | `dist/dyj-{windows,linux,darwin}-{amd64,arm64}[.exe]`，8–9 MB，纯静态 |
+| 二进制 | `dist/dyj-{windows,linux,darwin}-{amd64,arm64,386}[.exe]`（windows 386 仅 Win10+），8–11 MB，纯静态 |
+| Win7 通道 | `dist/dyj-legacy-win7-{386,amd64}.zip`（Go 1.20.14 构建，最低 Win7 SP1，含安装/卸载脚本与 README-Win7.txt） |
 | 服务化 | `dyj service install`（Windows SCM 服务 / systemd / launchd） |
 | 测试 | `go test ./...`（单元 + 进程内 E2E）；`scripts/e2e.sh`（二进制级 E2E） |
-| 构建 | `scripts/build-all.sh`（交叉编译 6 目标） |
+| 构建 | `scripts/build-all.sh`（交叉编译 7 目标）；`scripts/build-legacy-windows.sh`（Win7 legacy 通道） |
+
+### Windows 版本支持
+
+| 系统 | 用什么 |
+| --- | --- |
+| Windows 10 / 11（x64、arm64、32 位） | `dyj-setup-x64.exe` 或 `dist/dyj-windows-*.exe` |
+| Windows 7 SP1 / 8 / 8.1（32/64 位） | `dyj-legacy-win7-{386,amd64}.zip`，仅「打印服务器」角色（driverless 客户端需要 Win8+/Win10 21H2+，Windows 能力边界） |
+| XP / Vista | 不支持 |
 
 ## 仓库结构
 

@@ -21,6 +21,8 @@ package main
 import (
 	"fmt"
 	"os"
+
+	"github.com/232252/dyj/internal/winver"
 )
 
 // dyjVersion is stamped into the admin API and diagnostics. Keep
@@ -28,6 +30,7 @@ import (
 const dyjVersion = "0.4.3"
 
 func main() {
+	winver.Guard()
 	if len(os.Args) < 2 {
 		// The foolproof path: no arguments = guided launcher.
 		if err := cmdLaunch(); err != nil {
