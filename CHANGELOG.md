@@ -3,6 +3,27 @@
 All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/); versioning: semver.
 
+## [0.4.4] — 2026-11-07
+
+### Added
+- **Windows 7 SP1 legacy 通道**：发布页新增 `dyj-legacy-win7-{386,amd64}.zip`
+  （Go 1.20.14 构建，最低 Win7 SP1；zip 内含 install/uninstall 脚本与
+  README-Win7.txt）。仅支持「打印服务器」角色——driverless 客户端需要
+  Win8+/Win10 21H2+（Windows 能力边界）。XP/Vista 不支持（Go 运行时层面
+  不可行，Go ≥1.11 无法在 XP 运行）。
+- windows/386 构建（Win10 32 位；Inno 安装器仍拒绝 32 位系统，32 位用户
+  取裸 exe 或 legacy zip）。
+- 低于 Win7 SP1（6.1 SP1）启动时给出友好提示后退出（internal/winver，
+  ntdll RtlGetVersion），防 legacy 包被误装到 XP/Vista 时以运行时崩溃收场。
+
+### Changed
+- spooler prune 重写为单趟 `slices.DeleteFunc`：去掉 O(n²) 索引删除，
+  顺手清理 order/jobs 失同步的僵尸项，RemoveAll 移到解锁后执行。
+- slices/cmp 与 min/max 经 `internal/slices`/`internal/cmp` 垫片适配
+  go1.20 legacy 工具链——现代构建仍直连标准库，`go.mod` 保持 go 1.27.3。
+- release workflow 新增 build-legacy job（go1.20.14 × windows 386/amd64
+  便携 zip，独立 artifact 随 Release 发布）。
+
 ## [0.4.3] — 2026-10-30
 
 ### Fixed

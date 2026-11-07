@@ -27,7 +27,7 @@ import (
 
 // dyjVersion is stamped into the admin API and diagnostics. Keep
 // sync with the latest CHANGELOG entry.
-const dyjVersion = "0.4.3"
+const dyjVersion = "0.4.4"
 
 func main() {
 	winver.Guard()
