@@ -7,27 +7,27 @@ class Dyj < Formula
   desc "LAN printer sharing, driverless (IPP Everywhere + mDNS)"
   homepage "https://github.com/232252/dyj"
   # Tracks the latest published GitHub Release, not the in-tree version.
-  # Tagging v0.4.2 refreshes these sha256 marks (see .github/workflows/release.yml).
-  version "0.4.1"
+  # Each release tag refreshes these sha256 marks (see .github/workflows/release.yml).
+  version "0.4.4"
   license "Apache-2.0"
 
   on_macos do
     if Hardware::CPU.arm?
       url "https://github.com/232252/dyj/releases/download/v#{version}/dyj-darwin-arm64.tar.gz"
-      sha256 "687d1291299fb8ab7a980c4f47608fe707123461dde91fa80e50ea663afdb3c8" # mark: darwin-arm64
+      sha256 "dba495993897a5f8d66b1c7c91e945d7fc3ebb353efb196c005da4e993868aa8" # mark: darwin-arm64
     else
       url "https://github.com/232252/dyj/releases/download/v#{version}/dyj-darwin-amd64.tar.gz"
-      sha256 "cc0c4c6bf97cdd8a5220586a7b510cfebd4e369ae3a1cf63a8ba287d9b9ca4e5" # mark: darwin-amd64
+      sha256 "854198f2b944b5f203a95e3d1cd6a028241ec0ff1697565c6aab58920aac8324" # mark: darwin-amd64
     end
   end
 
   on_linux do
     if Hardware::CPU.arm? && Hardware::CPU.is_64_bit?
       url "https://github.com/232252/dyj/releases/download/v#{version}/dyj-linux-arm64.tar.gz"
-      sha256 "748d4e2185665a374273b0a80862c5747262f031d6a53e7b91d7ad95360aaa40" # mark: linux-arm64
+      sha256 "f6f445e93f9f156bc644cb7f95d499345506e80ca16def993209268ea04aca4a" # mark: linux-arm64
     else
       url "https://github.com/232252/dyj/releases/download/v#{version}/dyj-linux-amd64.tar.gz"
-      sha256 "2d4d324b7c5444ec23997d67f17e06fd89712cf4810f13a6c5b33d5dc2c373ac" # mark: linux-amd64
+      sha256 "f5bc9031a7188821c6bbb21463afc679a60b063f651df9c9722d5b923e138037" # mark: linux-amd64
     end
   end
 
