@@ -58,6 +58,18 @@ func (b *recordingBackend) count() int {
 	return len(b.printed)
 }
 
+func (b *recordingBackend) countID(id int32) int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	n := 0
+	for _, j := range b.printed {
+		if j.ID == id {
+			n++
+		}
+	}
+	return n
+}
+
 func newTestSpooler(t *testing.T, backend driver.Interface) (*Spooler, string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -129,8 +141,17 @@ func TestGzipDocumentIsDecompressed(t *testing.T) {
 }
 
 func TestCancelPendingJob(t *testing.T) {
-	backend := &recordingBackend{}
+	backend := &recordingBackend{blockAll: true}
 	s, _ := newTestSpooler(t, backend)
+
+	// Job 1 occupies the single worker (blocked on the backend), so job 2
+	// is deterministically still pending when canceled. Canceling a lone
+	// fast job raced the worker — on fast runners the job finished before
+	// Cancel ran (first seen as "job already finished" under go1.20 on
+	// the Linux CI runner).
+	blocker, _ := s.Begin(ipp.JobInfo{Name: "blocker"})
+	_ = s.AddDocument(blocker, pwgDoc("block"), true)
+	waitForState(t, s, blocker, ipp.JobStateProcessing, 3*time.Second)
 
 	id, _ := s.Begin(ipp.JobInfo{Name: "cancel-me"})
 	if err := s.AddDocument(id, pwgDoc("x"), true); err != nil {
@@ -140,8 +161,8 @@ func TestCancelPendingJob(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitForState(t, s, id, ipp.JobStateCanceled, 3*time.Second)
-	if backend.count() != 0 {
-		t.Fatalf("canceled job reached the backend %d times", backend.count())
+	if backend.countID(id) != 0 {
+		t.Fatalf("canceled job reached the backend %d times", backend.countID(id))
 	}
 
 	// Canceling a finished job is client-error-not-possible.
