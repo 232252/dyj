@@ -23,7 +23,7 @@ if command -v go-winres >/dev/null 2>&1 && [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-
             dyj) desc="dyj - LAN printer sharing service"; manifest=cli ;;
             *)   desc="dyj system tray";                   manifest=gui ;;
         esac
-        go-winres simply --arch amd64,arm64 --out "$pkg/rsrc" \
+        go-winres simply --arch amd64,arm64,386 --out "$pkg/rsrc" \
             --product-version "$VERSION.0" --file-version "$VERSION.0" \
             --product-name "dyj" --file-description "$desc" \
             --copyright "Copyright dyj maintainers, Apache-2.0" \
@@ -38,7 +38,7 @@ mkdir -p dist
 rm -f dist/dyj-*
 
 for platform in \
-    windows/amd64 windows/arm64 \
+    windows/amd64 windows/arm64 windows/386 \
     linux/amd64 linux/arm64 \
     darwin/amd64 darwin/arm64; do
     GOOS=${platform%/*}; GOARCH=${platform#*/}
