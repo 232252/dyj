@@ -410,15 +410,22 @@ func (s *Spooler) Accepting() bool {
 	return s.accepting && !s.closed
 }
 
+func jobFinished(state int32) bool {
+	switch state {
+	case ipp.JobStateCompleted, ipp.JobStateCanceled, ipp.JobStateAborted:
+		return true
+	}
+	return false
+}
+
 func stateMatches(state int32, which string) bool {
-	finished := state == ipp.JobStateCompleted || state == ipp.JobStateCanceled || state == ipp.JobStateAborted
 	switch which {
 	case "completed":
-		return finished
+		return jobFinished(state)
 	case "all":
 		return true
 	default: // "not-completed" and ""
-		return !finished
+		return !jobFinished(state)
 	}
 }
 
@@ -560,31 +567,36 @@ func (s *Spooler) persistLocked(j *job) error {
 // prune drops the oldest finished jobs beyond KeepCompleted.
 func (s *Spooler) prune() {
 	s.mu.Lock()
-	var finished []int32
+	finished := 0
 	for _, id := range s.order {
-		switch s.jobs[id].State {
-		case ipp.JobStateCompleted, ipp.JobStateCanceled, ipp.JobStateAborted:
-			finished = append(finished, id)
+		if j := s.jobs[id]; j != nil && jobFinished(j.State) {
+			finished++
 		}
 	}
-	var remove []int32
-	for len(finished) > s.opts.KeepCompleted {
-		remove = append(remove, finished[0])
-		finished = finished[1:]
-	}
-	for _, id := range remove {
-		delete(s.jobs, id)
-		for i, oid := range s.order {
-			if oid == id {
-				s.order = append(s.order[:i], s.order[i+1:]...)
-				break
+	if excess := finished - s.opts.KeepCompleted; excess > 0 {
+		var remove []int32
+		s.order = slices.DeleteFunc(s.order, func(id int32) bool {
+			j := s.jobs[id]
+			if j == nil {
+				return true // order/jobs 失同步的僵尸项，顺手清掉
 			}
+			if excess == 0 || !jobFinished(j.State) {
+				return false
+			}
+			excess--
+			remove = append(remove, id)
+			return true
+		})
+		for _, id := range remove {
+			delete(s.jobs, id)
 		}
 		s.mu.Unlock()
-		if err := os.RemoveAll(s.jobDir(id)); err != nil {
-			s.log.Printf("spooler: pruning job %d: %v", id, err)
+		for _, id := range remove {
+			if err := os.RemoveAll(s.jobDir(id)); err != nil {
+				s.log.Printf("spooler: pruning job %d: %v", id, err)
+			}
 		}
-		s.mu.Lock()
+		return
 	}
 	s.mu.Unlock()
 }
