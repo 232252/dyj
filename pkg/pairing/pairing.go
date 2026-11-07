@@ -18,10 +18,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/232252/dyj/internal/slices"
 )
 
 // Store owns the PIN, the per-IP attempt limiter and the paired-device

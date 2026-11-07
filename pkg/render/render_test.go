@@ -72,7 +72,7 @@ func TestPWGRoundTrip(t *testing.T) {
 		t.Errorf("page2 pixels differ")
 		for y := 0; y < p2.Header.Height; y++ {
 			if !bytes.Equal(got[1].Row(y), p2.Row(y)) {
-				t.Errorf("row %d: got %x want %x", y, got[1].Row(y)[:min(8, len(p2.Row(y)))], p2.Row(y)[:min(8, len(p2.Row(y)))])
+				t.Errorf("row %d: got %x want %x", y, got[1].Row(y)[:minInt(8, len(p2.Row(y)))], p2.Row(y)[:minInt(8, len(p2.Row(y)))])
 			}
 		}
 	}

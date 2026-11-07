@@ -191,8 +191,8 @@ func (w *WingDI) printPage(hdc, pdpiX, pdpiY uintptr, p *render.Page) error {
 		}
 	}
 
-	destW := int64(width) * int64(pdpiX) / max(int64(p.Header.XDPI), 1)
-	destH := int64(height) * int64(pdpiY) / max(int64(p.Header.YDPI), 1)
+	destW := int64(width) * int64(pdpiX) / maxI64(int64(p.Header.XDPI), 1)
+	destH := int64(height) * int64(pdpiY) / maxI64(int64(p.Header.YDPI), 1)
 
 	if r, _, err := procStartPage.Call(hdc); int32(r) <= 0 {
 		return fmt.Errorf("driver: StartPage failed: %v", err)
@@ -287,6 +287,15 @@ func normalizeDPI(v uintptr) uintptr {
 		return 300
 	}
 	return v
+}
+
+// maxI64 is the Go 1.21+ builtin max for int64; spelled out so the Win7
+// legacy toolchain (go1.20) can compile this package too.
+func maxI64(a, b int64) int64 {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func utf16Ptr(s string) *uint16 {

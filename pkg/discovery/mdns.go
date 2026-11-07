@@ -17,14 +17,15 @@
 package discovery
 
 import (
-	"cmp"
 	"fmt"
 	"log"
 	"net"
-	"slices"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/232252/dyj/internal/cmp"
+	"github.com/232252/dyj/internal/slices"
 
 	"github.com/miekg/dns"
 )

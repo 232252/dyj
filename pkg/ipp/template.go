@@ -8,8 +8,8 @@ package ipp
 
 import (
 	"fmt"
-	"slices"
 
+	"github.com/232252/dyj/internal/slices"
 	"github.com/232252/dyj/pkg/attributes"
 )
 

@@ -133,7 +133,7 @@ func TestGetPrinterAttributesEndToEnd(t *testing.T) {
 		t.Fatalf("read body: %v", err)
 	}
 	raw := buf.Bytes()
-	t.Logf("response: %d bytes\nhex: %s", len(raw), hex.EncodeToString(raw[:min(128, len(raw))]))
+	t.Logf("response: %d bytes\nhex: %s", len(raw), hex.EncodeToString(raw[:minInt(128, len(raw))]))
 
 	// --- frame checks (independent of any decoder) ---
 	if len(raw) < 8 {
@@ -620,4 +620,13 @@ func TestAdminMountedIPPUnaffected(t *testing.T) {
 	if got := attributes.GroupFirstString(printerGroup, "printer-name"); got != "dyj admin coexist" {
 		t.Errorf("printer-name = %q", got)
 	}
+}
+
+// minInt is the Go 1.21+ builtin min; spelled out so the Win7 legacy
+// toolchain (go1.20) can compile the tests too.
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

@@ -28,12 +28,12 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/232252/dyj/internal/slices"
 	"github.com/232252/dyj/pkg/ipp"
 )
 

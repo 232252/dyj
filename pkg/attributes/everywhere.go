@@ -3,9 +3,10 @@ package attributes
 import (
 	"fmt"
 	"net"
-	"slices"
 	"strings"
 	"time"
+
+	"github.com/232252/dyj/internal/slices"
 )
 
 // This file builds the IPP Everywhere Printer Description attribute set

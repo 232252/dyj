@@ -15,7 +15,6 @@ package driver
 
 import (
 	"bytes"
-	"cmp"
 	"context"
 	"fmt"
 	"image"
@@ -23,11 +22,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
 
+	"github.com/232252/dyj/internal/cmp"
+	"github.com/232252/dyj/internal/slices"
 	"github.com/232252/dyj/pkg/render"
 )
 

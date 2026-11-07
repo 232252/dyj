@@ -235,7 +235,7 @@ func readRowData(br *bufio.Reader, buf []byte, bpp int) error {
 			end := i + n
 			// A malformed stream can leave fewer than bpp bytes in the
 			// row; seed with what fits instead of slicing past the end.
-			seed := min(bpp, n)
+			seed := minInt(bpp, n)
 			if _, err := io.ReadFull(br, buf[i:i+seed]); err != nil {
 				return err
 			}
@@ -243,7 +243,7 @@ func readRowData(br *bufio.Reader, buf []byte, bpp int) error {
 			// Expand the run exponentially: each copy doubles the filled
 			// prefix, so a 128-pixel run costs ~7 memmoves, not 127.
 			for filled := seed; i < end; {
-				c := min(filled, end-i)
+				c := minInt(filled, end-i)
 				copy(buf[i:i+c], buf[i-filled:i-filled+c])
 				i += c
 				filled += c
@@ -426,6 +426,15 @@ func DecodeAll(r io.Reader) ([]*Page, error) {
 
 func be32(b []byte) uint32     { return binary.BigEndian.Uint32(b) }
 func put32(b []byte, v uint32) { binary.BigEndian.PutUint32(b, v) }
+
+// minInt is the Go 1.21+ builtin min; spelled out so the Win7 legacy
+// toolchain (go1.20) can compile this package too.
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
 
 func max1(v int) int {
 	if v < 1 {

@@ -26,11 +26,11 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/232252/dyj/internal/slices"
 	"github.com/232252/dyj/pkg/driver"
 	"github.com/232252/dyj/pkg/ipp"
 )
@@ -510,6 +510,7 @@ func (s *Spooler) printJob(id int32) {
 
 	var printErr error
 	for _, d := range docs {
+		d := d // keep per-iteration capture under the go1.20 legacy toolchain (pre-1.22 loopvar semantics)
 		doc := driver.Document{
 			Format: d.Format,
 			Size:   d.Size,

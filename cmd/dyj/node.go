@@ -13,7 +13,6 @@
 package main
 
 import (
-	"cmp"
 	"context"
 	"crypto/tls"
 	"fmt"
@@ -23,11 +22,12 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/232252/dyj/internal/cmp"
+	"github.com/232252/dyj/internal/slices"
 	"github.com/232252/dyj/pkg/admin"
 	"github.com/232252/dyj/pkg/attributes"
 	"github.com/232252/dyj/pkg/discovery"
