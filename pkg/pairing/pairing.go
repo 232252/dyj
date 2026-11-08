@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -280,6 +281,42 @@ func (s *Store) Verify(token string) (deviceID string, ok bool) {
 	s.devices[i].LastSeen = s.now()
 	s.dirtySeen = true
 	return s.devices[i].ID, true
+}
+
+// TrustedIP reports whether host is the source address a device paired
+// from. It backs the system-print takeover flow (research/17): OS print
+// stacks cannot carry the pairing token inside the IPP URI path, so after
+// one in-app pairing the trust follows the device address instead. A hit
+// refreshes LastSeen exactly like Verify.
+func (s *Store) TrustedIP(host string) bool {
+	if host == "" {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.devices {
+		if sameAddr(s.devices[i].SourceIP, host) {
+			s.devices[i].LastSeen = s.now()
+			s.dirtySeen = true
+			return true
+		}
+	}
+	return false
+}
+
+// sameAddr compares two bare host strings; bracketed IPv6 and
+// IPv4-mapped IPv6 spellings of the same address count as equal.
+func sameAddr(a, b string) bool {
+	a = strings.ToLower(strings.TrimSuffix(strings.Trim(a, "[]"), "."))
+	b = strings.ToLower(strings.TrimSuffix(strings.Trim(b, "[]"), "."))
+	if a == "" || b == "" {
+		return false
+	}
+	if a == b {
+		return true
+	}
+	ipa, ipb := net.ParseIP(a), net.ParseIP(b)
+	return ipa != nil && ipb != nil && ipa.Equal(ipb)
 }
 
 // Revoke removes a device; its token stops working immediately.

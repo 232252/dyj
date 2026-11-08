@@ -559,10 +559,17 @@ func listenUpward(port int) (net.Listener, int, error) {
 	return nil, port, err
 }
 
-// gate rebuilds the data-plane gate (loopback or valid pairing token).
+// gate rebuilds the data-plane gate: loopback, a valid pairing token, or
+// the source IP of a paired device (research/17 — OS print stacks cannot
+// carry the token in the URI path, so one in-app pairing trusts the device
+// address for tokenless system printing).
 func (n *node) gate() func(*http.Request, string) bool {
 	return func(r *http.Request, token string) bool {
 		if isLoopbackRequest(r) {
+			return true
+		}
+		src := hostOf(r.RemoteAddr)
+		if n.pair != nil && n.pair.TrustedIP(src) {
 			return true
 		}
 		if token == "" || n.pair == nil {
@@ -571,7 +578,7 @@ func (n *node) gate() func(*http.Request, string) bool {
 		if _, ok := n.pair.Verify(token); ok {
 			return true
 		}
-		n.log.Info("deny.ipp", "src", hostOf(r.RemoteAddr))
+		n.log.Info("deny.ipp", "src", src)
 		return false
 	}
 }
