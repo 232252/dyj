@@ -3,6 +3,17 @@
 All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/); versioning: semver.
 
+## [Unreleased]
+
+### Changed
+- **官网（dyj.qdzwwqd.top）视觉重构**：深蓝渐变模板（渐变大字标题 + emoji 图标 +
+  圆角浮卡 + pill 徽章）改为浅色克制工具风——白底墨字 + 单一强调色 `#2563eb`
+  （与管理页 `--dyj-primary` 同源）；全站图标改内联 SVG：品牌位用
+  `assets/brand/dyj-mark.svg` 的「打印机 + 广播波纹」母题，界面图标用 Lucide
+  图形（ISC，research/11 §3）；信息架构收敛为 Hero / 三步 / 能力 / 下载 /
+  快速开始五段；深色模式重做为近黑中性色（原深蓝版只是浅色的反面）。
+  `website/`（Worker + 部署脚本）自此纳入版本控制。
+
 ## [0.4.4] — 2026-11-07
 
 ### Added
