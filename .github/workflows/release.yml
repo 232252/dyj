@@ -36,13 +36,6 @@ jobs:
       - name: Build all platform binaries
         run: |
           VERSION="${GITHUB_REF_NAME#v}" ./scripts/build-all.sh
-          # tarballs the Homebrew formula downloads (bare binary inside);
-          # drop the bare dist copy so the release page only carries the
-          # tarballs, not the duplicate loose binaries
-          for f in dyj-linux-amd64 dyj-linux-arm64 dyj-darwin-amd64 dyj-darwin-arm64; do
-            tar -czf "dist/$f.tar.gz" -C dist "$f"
-            rm "dist/$f"
-          done
       - name: Install nfpm
         run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
       - name: Build deb/rpm (amd64 + arm64)
@@ -50,6 +43,16 @@ jobs:
           VERSION: ""
         run: |
           VERSION="${GITHUB_REF_NAME#v}" bash scripts/package-linux.sh
+      - name: Tar bare binaries for Homebrew
+        run: |
+          # tarballs the Homebrew formula downloads (bare binary inside);
+          # drop the bare dist copies so the release page only carries the
+          # tarballs, not the duplicate loose binaries. Must run AFTER the
+          # deb/rpm step: package-linux.sh consumes dist/dyj-linux-*.
+          for f in dyj-linux-amd64 dyj-linux-arm64 dyj-darwin-amd64 dyj-darwin-arm64; do
+            tar -czf "dist/$f.tar.gz" -C dist "$f"
+            rm "dist/$f"
+          done
       - name: Upload linux/mac artifacts
         uses: actions/upload-artifact@v4
         with:
