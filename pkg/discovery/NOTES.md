@@ -25,8 +25,11 @@
 - `PacketConn.SetControlMessage(FlagDst|FlagInterface, true)` + `WriteTo(cm, ...)`：
   回包时**把源地址/源接口固定成收到包的那个**，等效于 Avahi/CUPS 的 `${IFACE}`。
 
-通告：**主动发一次 unsolicited announcement**（RFC 6762 §8.3，PTR/SRV/TXT/A/AAAA，cache-flush 位），
-这样零查询客户端也能看到；之后对任何匹配查询做**定向单播应答**（QU 语义，RFC 6762 §5.4）。
+通告：**启动时发一次 unsolicited announcement**（RFC 6762 §8.3，PTR/SRV/TXT/A/AAAA，cache-flush 位），
+这样零查询客户端也能看到；之后**按 TTL/2（默认 60s）周期重宣告**——入站 UDP 5353 查询可能被
+防火墙拦掉（Windows 公共配置文件对 dyj.exe 实测如此，调研 17 §4），周期重发让被动客户端
+（鸿蒙"添加打印机"搜索页）随时能捕获，而不是只有启动后一小段窗口；
+同时对任何到达的匹配查询做**定向单播应答**（QU 语义，RFC 6762 §5.4）。
 
 `hashicorp/mdns` 仍保留为依赖，但**只用于本包里那个离线自检浏览器**（`Browse()`，见 `browse.go`），
 不参与服务端路径。

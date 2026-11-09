@@ -88,6 +88,11 @@ type Advertiser struct {
 	closed   bool
 	ttl      uint32
 
+	stopRefresh chan struct{}
+	// announceF is what refreshLoop fires; tests swap it to observe ticks
+	// without touching multicast sockets.
+	announceF func()
+
 	respCount uint64
 }
 
@@ -129,7 +134,9 @@ func New(cfg Config) (*Advertiser, error) {
 	if len(cfg.TXT) == 0 {
 		cfg.TXT = BuildTXT(TXTParams{Port: cfg.Port, Path: cfg.Path})
 	}
-	return &Advertiser{cfg: cfg, instance: cfg.Instance, host: cfg.HostName, ttl: cfg.TTL}, nil
+	a := &Advertiser{cfg: cfg, instance: cfg.Instance, host: cfg.HostName, ttl: cfg.TTL}
+	a.announceF = a.announce
+	return a, nil
 }
 
 // Instance reports the instance name actually in use (may differ from the
@@ -205,7 +212,46 @@ func (a *Advertiser) Start() error {
 		go a.serve(c)
 	}
 	a.announce()
+	a.startRefresh()
 	return nil
+}
+
+// refreshInterval is half the record TTL: re-announcing once well before
+// the old records can expire is the RFC 6762 §8.3 good-neighbor rule.
+func (a *Advertiser) refreshInterval() time.Duration {
+	return time.Duration(a.ttl) * time.Second / 2
+}
+
+// startRefresh launches the periodic re-announce loop for this advertiser.
+func (a *Advertiser) startRefresh() {
+	stop := make(chan struct{})
+	a.mu.Lock()
+	a.stopRefresh = stop
+	a.mu.Unlock()
+	go a.refreshLoop(stop, a.refreshInterval())
+}
+
+// refreshLoop keeps re-announcing until stop closes. Inbound mDNS queries
+// can be firewalled off (research/17 §4: Windows blocks dyj.exe's inbound
+// UDP 5353 on the public profile), which used to leave the one startup
+// burst as the only discovery window for passive clients like the
+// HarmonyOS printer picker — periodic refresh makes the offer standing.
+func (a *Advertiser) refreshLoop(stop <-chan struct{}, interval time.Duration) {
+	if interval <= 0 {
+		return
+	}
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-t.C:
+			if f := a.announceF; f != nil {
+				f()
+			}
+		}
+	}
 }
 
 // Close sends goodbye packets (TTL=0) and stops the listeners. Without this,
@@ -219,8 +265,13 @@ func (a *Advertiser) Close() error {
 	a.closed = true
 	conns := a.conns
 	a.conns = nil
+	stop := a.stopRefresh
+	a.stopRefresh = nil
 	a.mu.Unlock()
 
+	if stop != nil {
+		close(stop)
+	}
 	if len(conns) > 0 {
 		a.sendRecords(conns, a.goodbyeRecords(), true)
 	}

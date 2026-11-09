@@ -18,12 +18,16 @@
 
 推论：**dyj 想让打印机出现在系统打印面板，唯一路径是让系统自带打印客户端直接连 dyj 服务端**（把自己伪装成一台"普通网络打印机"——本来就是）。
 
+**2026-11-09 二次复核**：`@ohos.print` 的 `addPrinter` / `deletePrinter` / `startDiscoverPrinter` 等打印机管理接口仍标注 systemapi（仅系统应用），未查到任何开放计划；三方应用侧可用的只有发起打印（`print.print` 等，normal 级权限）。厂商接入路径仍是预置/审批的打印扩展（print_print_fwk 的发现指令链：PrintSpooler → PrintSA → PrintExtension → CustomPrintExtension）。结论不变，且进一步排除"等开放"的侥幸。
+
 ## 2. 系统打印入口：存在且是 CUPS 血统
 
 - 华为官方指南：**设置 → 打印机和扫描仪 → 添加打印机和扫描仪**，支持自动搜索与 **IP添加**（名称+IP）。
 - OpenHarmony 打印架构（论坛《打印系统简介》+ print_print_fwk）：打印预览应用自己做打印机发现（**P2P & mDNS**），打印后台基于 CUPS 构建。
 - **本机取证（LRT-W20 平板，API 26）**：`ps -ef` 可见 `print_service`（打印框架服务）、`cupsd -f -c /etc/cups/cupsd.conf`、`scan_service`/`sane_service`，mDNS 由系统 `mdnsmanager` 提供（无 avahi）。系统打印栈字面意义上在跑 CUPS。
 - CUPS 客户端对 dyj 的兼容性**已有实证**（调研 12）：`lpadmin -m everywhere` 自动建队 → wingdi 后端打印成功。
+- 华为官方指南细节（zh-cn16091885，2026-11 复核）：适用 **HarmonyOS 5.0+**；自动搜索约 3–5 秒列出设备，点击名称即添加；「IP添加」输入框**只有名称 + IP**（平板实测另有 驱动[自动] / 协议[ipp]），**没有端口字段 → 隐含 631**；IP 添加的一体机不支持扫描（只管打印）——对我们无影响。
+- 生态印证（同文档）：系统面板吃不到的打印机由华为应用市场的**厂商驱动 App** 兜底（惠普「慧适联驱动」HarmonyOS 7+、富士胶片打印驱动、东芝、兄弟、柯尼卡美能达），或第三方「智睦云打印」建 "(Cloud)" 前缀的虚拟打印机。华为自家对"系统面板没有的打印机"的答案与 dyj 同构：**要么厂商出 App，要么虚拟打印机 + 系统面板**——dyj 选后者，且不走云。
 
 ## 3. 唯一架构冲突与解法：配对门禁
 
@@ -53,6 +57,7 @@
 - 07:55 在 PC 上以 `dyj.exe serve -port 631 -spool C:\ProgramData\dyj -no-mdns` 起第二个实例引流 631（借用 dyj.exe 程序级防火墙白名单 + 共享配对库；`-no-mdns` 避免与服务抢 mDNS）。此后 **631/6631 双端口就绪**。
 - 08:1x 尝试远程代点（uitest）失败两次：一次撞上用户操作，一次因平板自动锁屏（截图全黑）。教训：**dumpLayout 默认合并窗口，背景窗口的控件也会出现在树里**，点击必须先确认前台（截屏校验）。
 - 待用户解锁平板重试：IP添加 `192.168.110.40`（现走 631 引流）→ 添加 → 图库系统打印。
+- （同日，服务端加固落地，取代手动引流）主实例新增 **631 别名监听**：主端口仍 6631+，631 空闲即自动以同一 IPP 路由监听（仅数据面，无 /admin、/pair），被占则跳过——平板 IP添加 直接填 PC IP 即可，不再需要第二个 dyj 进程；mDNS 新增 **TTL/2（默认 60s）周期重宣告**，防火墙拦 UDP 入站时平板"添加打印机"页面随时能被动捕获。验证清单不变：IP添加 → 图库系统打印 → 记录系统发来的 document-format（pwg-raster 还是 pdf）→ 未配对设备直连仍 401。
 
 补充取证（实验前置侦查时发现）：
 - 本机（共享端 PC）防火墙对 `dyj.exe`：TCP 入站**允许**、UDP 入站**阻止**（公用配置文件，netsh 实测）→ 系统面板 **IP添加（TCP 6631）可用**；mDNS 自动搜索依赖入站 UDP 5353 查询，被拦时只能靠 dyj 启动时的无查询宣告（multicast 突发，TTL 120s）被平板 `mdnsmanager` 被动捕获——换服务后立即在平板上搜，命中窗口最大。
@@ -61,7 +66,7 @@
 - 同机双 dyj 实例（el 机实测）：派生相同 `.local` 主机名导致后来者 mDNS 宣告被压掉，`-hostname` 显式区分可解（见 §5）。
 
 关注点（失败分支预案）：
-1. IP添加 若强制 631 端口 → 6631 够不着：结论=自动搜索（mDNS 带正确端口）是正路；或将来服务端支持 631（Windows 可、Linux 需 root）。
+1. IP添加 若强制 631 端口 → 6631 够不着：**已转正**——服务端空闲时自动监听 631（`startIPPAlias`，被占则跳过），此分支的兜底不再依赖手动第二实例；Linux 下 631 需 root，届时自动跳过、走 mDNS 主端口。
 2. 系统客户端若只肯发 application/pdf → 服务端未装 poppler 时干净拒绝 0x040B：需评估 Windows 版 poppler（pkg/render/pdfimg）。
 3. 系统若要求 TLS（ipps）→ 服务端已支持 `-tls-port` 自签，但系统面板是否接受自签待验。
 
@@ -75,5 +80,6 @@
 
 - PrintExtensionAbility 系统接口：gitee.com/openharmony/docs `OpenHarmony-6.0-Beta1/zh-cn/application-dev/website.md`、`apis-ability-kit/js-apis-bundleManager.md`
 - 权限：`security/AccessToken/permissions-for-all.md`（PRINT=normal）、`restricted-permissions.md`（PRINTER_DRIVER，PC/2in1，26.0.0）
-- 华为打印指南：consumer.huawei.com/cn/support/content/zh-cn16091885（IP添加）、zh-cn16057990（排障）
-- OpenHarmony 打印架构：forums.openharmony.cn/ziyuan/tid-788（打印系统简介）、gitee.com/openharmony/print_print_fwk
+- 华为打印指南：consumer.huawei.com/cn/support/content/zh-cn16091885（IP添加、厂商驱动 App 生态）、zh-cn16057990（排障）
+- OpenHarmony 打印架构：forums.openharmony.cn/ziyuan/tid-788（打印系统简介）、gitee.com/openharmony/print_print_fwk（发现指令链 PrintSpooler → PrintSA → PrintExtension → CustomPrintExtension；README 架构说明）
+- `@ohos.print` / `PrintExtensionAbility` 接口状态 2026-11 复核：developer.huawei.com js-apis-print / js-apis-app-ability-printextensionability（管理接口 systemapi 标注）；社区全链路分析 blog.csdn.net/m0_67505153/article/details/153133523
