@@ -74,9 +74,8 @@ type node struct {
 	share []*sharedPrinter
 	adv   []*discovery.Advertiser
 
-	swap     *swapHandler
-	httpSrv  *http.Server
-	aliasSrv *http.Server // best-effort :631 IPP alias (startIPPAlias)
+	swap    *swapHandler
+	httpSrv *http.Server
 
 	ifaces []*net.Interface
 	ips    []net.IP
@@ -220,12 +219,6 @@ func runNode(ctx context.Context, raw serveOptions, mode runMode) error {
 	n.actualPort = port
 	lg.Info("boot.listen", "port", port, "role", o.Role)
 
-	// Well-known-port alias: OS "add printer by IP" dialogs (HarmonyOS
-	// IP添加, research/17 §4) assume port 631 and offer no port field.
-	if sharesRole(o.Role) {
-		n.aliasSrv = startIPPAlias(port, ippAliasPort, n.swap, lg)
-	}
-
 	errCh := make(chan error, 4)
 	go func() { errCh <- n.httpSrv.Serve(ln) }()
 
@@ -276,11 +269,6 @@ func runNode(ctx context.Context, raw serveOptions, mode runMode) error {
 	shutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	n.closeSpools(shutCtx)
-	if n.aliasSrv != nil {
-		if err := n.aliasSrv.Shutdown(shutCtx); err != nil {
-			lg.Warn("stop.alias", "err", err)
-		}
-	}
 	return n.httpSrv.Shutdown(shutCtx)
 }
 
@@ -571,50 +559,10 @@ func listenUpward(port int) (net.Listener, int, error) {
 	return nil, port, err
 }
 
-// ippAliasPort is the well-known IPP port. dyj's primary port is 6631+
-// (631 may be taken by a real CUPS), but OS "add printer by IP" flows
-// hard-code 631: the HarmonyOS IP添加 dialog has 名称/IP/驱动/协议 fields
-// and no port (research/17 §4), and the Windows IPP class driver behaves
-// the same. Serving the data plane on 631 too, when free, lets those
-// flows work with zero configuration.
-const ippAliasPort = 631
-
-// startIPPAlias best-effort binds aliasPort and serves the IPP router on
-// it — data plane only, no /admin and no /pair. A busy or unbindable port
-// (a real CUPS, Linux <1024 without root) is a skip, never an error: the
-// alias is a convenience for IP-add flows; the primary port stays the
-// contract (mDNS SRV keeps pointing at it).
-func startIPPAlias(primaryPort, aliasPort int, h http.Handler, lg *logx.Logger) *http.Server {
-	if primaryPort == aliasPort {
-		return nil // already serving on the well-known port
-	}
-	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", aliasPort))
-	if err != nil {
-		lg.Info("boot.alias", "port", aliasPort, "note", "skip (busy or privileged)", "err", err)
-		return nil
-	}
-	srv := &http.Server{
-		Handler:           h,
-		ReadHeaderTimeout: 10 * time.Second,
-		MaxHeaderBytes:    1 << 16,
-		IdleTimeout:       120 * time.Second,
-	}
-	go func() { _ = srv.Serve(ln) }() // best-effort; Shutdown is the only stop
-	lg.Info("boot.alias", "port", aliasPort, "note", "IPP data plane also on the well-known port")
-	return srv
-}
-
-// gate rebuilds the data-plane gate: loopback, a valid pairing token, or
-// the source IP of a paired device (research/17 — OS print stacks cannot
-// carry the token in the URI path, so one in-app pairing trusts the device
-// address for tokenless system printing).
+// gate rebuilds the data-plane gate (loopback or valid pairing token).
 func (n *node) gate() func(*http.Request, string) bool {
 	return func(r *http.Request, token string) bool {
 		if isLoopbackRequest(r) {
-			return true
-		}
-		src := hostOf(r.RemoteAddr)
-		if n.pair != nil && n.pair.TrustedIP(src) {
 			return true
 		}
 		if token == "" || n.pair == nil {
@@ -623,7 +571,7 @@ func (n *node) gate() func(*http.Request, string) bool {
 		if _, ok := n.pair.Verify(token); ok {
 			return true
 		}
-		n.log.Info("deny.ipp", "src", src)
+		n.log.Info("deny.ipp", "src", hostOf(r.RemoteAddr))
 		return false
 	}
 }

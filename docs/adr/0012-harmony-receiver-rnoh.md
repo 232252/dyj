@@ -1,6 +1,6 @@
 # ADR-0012：鸿蒙接收端走 React Native 鸿蒙化（RNOH），协议在 TS、平台在 ArkTS
 
-- **状态**：已接受
+- **状态**：已取代（[ADR-0014](0014-open-printing-mode.md)）
 - **日期**：2026-11-08
 - **依据**：[调研 16](../research/16-harmony-receiver-design.md)（版本矩阵、SDK 取证、
   服务端协议事实、踩坑记录）

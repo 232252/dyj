@@ -1,2 +1,0 @@
-# JS bundle：由 `npm run harmony:bundle` 生成，是构建产物，不入库。
-bundle.harmony.js

@@ -83,3 +83,5 @@
 - 华为打印指南：consumer.huawei.com/cn/support/content/zh-cn16091885（IP添加、厂商驱动 App 生态）、zh-cn16057990（排障）
 - OpenHarmony 打印架构：forums.openharmony.cn/ziyuan/tid-788（打印系统简介）、gitee.com/openharmony/print_print_fwk（发现指令链 PrintSpooler → PrintSA → PrintExtension → CustomPrintExtension；README 架构说明）
 - `@ohos.print` / `PrintExtensionAbility` 接口状态 2026-11 复核：developer.huawei.com js-apis-print / js-apis-app-ability-printextensionability（管理接口 systemapi 标注）；社区全链路分析 blog.csdn.net/m0_67505153/article/details/153133523
+
+> **结语（2026-11-09，[ADR-0014](../adr/0014-open-printing-mode.md)）**：此路线已放弃——鸿蒙 App 裁撤，「配对即信任 IP」与 631 别名/mDNS 周期重宣告一并回退；免认证打印改由通用的限时「开放打印模式」承担，§4 真机实验不再回填。

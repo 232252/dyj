@@ -2,9 +2,7 @@ package discovery
 
 import (
 	"net"
-	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/miekg/dns"
 )
@@ -138,58 +136,4 @@ func hasName(rrs []dns.RR, name string) bool {
 		}
 	}
 	return false
-}
-
-func TestRefreshIntervalIsHalfTTL(t *testing.T) {
-	a := testAdvertiser(t) // default TTL 120
-	if got, want := a.refreshInterval(), 60*time.Second; got != want {
-		t.Fatalf("refreshInterval = %v, want %v", got, want)
-	}
-}
-
-func TestRefreshLoopFiresAndStops(t *testing.T) {
-	a := testAdvertiser(t)
-	var hits atomic.Int32
-	a.announceF = func() { hits.Add(1) }
-
-	stop := make(chan struct{})
-	done := make(chan struct{})
-	go func() { a.refreshLoop(stop, 10*time.Millisecond); close(done) }()
-
-	time.Sleep(75 * time.Millisecond)
-	close(stop)
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("refreshLoop did not stop after close(stop)")
-	}
-	if n := hits.Load(); n < 2 {
-		t.Fatalf("refreshLoop fired %d times in 75ms at 10ms interval, want >= 2", n)
-	}
-	if n := hits.Load(); n > 20 {
-		t.Fatalf("refreshLoop kept firing after stop: %d hits", n)
-	}
-}
-
-func TestCloseStopsRefreshLoop(t *testing.T) {
-	a := testAdvertiser(t)
-	a.announceF = func() {} // even if it fires, sendRecords has no conns
-
-	a.startRefresh()
-	a.mu.Lock()
-	stop := a.stopRefresh
-	a.mu.Unlock()
-
-	if err := a.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-	select {
-	case <-stop: // closed: the loop was told to stop, not merely dropped
-	case <-time.After(time.Second):
-		t.Fatal("Close did not close the refresh stop channel")
-	}
-	// A second Close must be a no-op, not a double-close panic.
-	if err := a.Close(); err != nil {
-		t.Fatalf("second Close: %v", err)
-	}
 }

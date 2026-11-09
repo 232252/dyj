@@ -249,8 +249,8 @@ func (c *Client) Cancel(id int32) error {
 // sniffing it out of an HTTP round trip.
 //
 // Every attribute group leads with attributes-charset and
-// attributes-natural-language (RFC 8011 §4.1.4). That is the existing wire
-// behaviour of this package and the HarmonyOS client mirrors it exactly.
+// attributes-natural-language (RFC 8011 §4.1.4). That is the wire behaviour
+// this package locks byte-for-byte in the golden-file test.
 func encodeRequest(op uint16, opAttrs, jobAttrs []attributes.Attribute) ([]byte, error) {
 	var body bytes.Buffer
 	body.Write([]byte{2, 0, byte(op >> 8), byte(op)}) // version 2.0

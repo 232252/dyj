@@ -5,43 +5,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/); versioning: semver.
 
 ## [Unreleased]
 
-### Added
-- **系统打印接管——配对即信任设备**：App 配对一次后，服务端记住该设备源 IP，
-  系统/第三方 IPP 客户端可**免令牌直连**数据面（鸿蒙「设置 → 打印机和扫描仪」
-  的自动搜索与 IP添加、Windows IPP 队列等都带不了 URI 路径令牌，这是唯一的
-  通道）。撤销设备同时断令牌与 IP 信任；威胁模型不变（防蹭打，非防坚决
-  攻击者）。决策：[ADR-0013](docs/adr/0013-harmony-system-print-integration.md)、
-  取证：[调研 17](docs/research/17-harmony-system-print-takeover.md)。
-- **631 端口别名监听**：主端口仍为 6631+，端口 631 空闲时数据面（仅 IPP 路由，
-  不含 /admin、/pair）额外监听 631——OS「按 IP 添加打印机」对话框硬编码 631 且
-  无端口字段（鸿蒙平板实测）；被占用（真 CUPS 等）则静默跳过，mDNS 仍通告
-  主端口。
-- **mDNS 周期重宣告**：按 TTL/2（默认 60s）重发 unsolicited 宣告（RFC 6762
-  §8.3）。此前仅启动时宣告一次，共享端防火墙拦 UDP 5353 入站查询时，被动
-  客户端（如鸿蒙打印机搜索页）只有启动后一小段命中窗口；现在随时可发现。
-- **鸿蒙手机端（接收端）**：新增 `harmony/` —— React Native 鸿蒙化（RNOH
-  0.84.5 / RN 0.84.1）实现的手机接收端，闭环是「发现共享端 → 输入 4 位配对码
-  → 选内容 → 打印」，首版支持图片 + 文字 + PDF。**服务端零改动**：配对走现成的
-  `POST /pair`，打印走现成的 `POST /p/<令牌>/ipp/print/<打印机>`。
-  - 协议编解码在 TS 侧（可单测），平台能力在 ArkTS TurboModule 侧：六个模块
-    `DyjHttp` / `DyjMdns` / `DyjPrefs` / `DyjFiles` / `DyjImage` / `DyjPdf`，
-    跨桥只传字符串。
-  - **IPP wire 格式与 Go 侧共用同一份黄金字节**（`pkg/client/testdata/
-    print_job.hex`）：Go 侧生成、两侧各自断言，任何一侧漂移两边同时变红。
-    Go 侧为此把 `pkg/client/client.go` 的编码抽成 `encodeRequest`（字节级不变）
-    并新增 `golden_test.go`。
-  - mDNS 扫两轮（先 PTR 拿实例名，再带实例名问 SRV/TXT/A），去重键是实例全名，
-    多网卡端点全部保留；另有「按地址添加」兜底。
-  - PDF **默认在端上渲染**成逐页 JPEG 逐页打印（服务端只有装了 poppler 才声明
-    `application/pdf`），「保持原样直传」是默认关闭的可选开关。
-  - 交付**未签名 HAP**（release 约 19 MB，自带 JS bundle，可脱离 metro 运行）；
-    签名与装机步骤见 `harmony/README.md`。签名材料不入库。
-  - 决策记录：[ADR-0012](docs/adr/0012-harmony-receiver-rnoh.md)；
-    版本矩阵、SDK 取证与踩坑记录：[调研 16](docs/research/16-harmony-receiver-design.md)。
-  - **方向变更（2026-11-09，[ADR-0013](docs/adr/0013-harmony-system-print-integration.md)）**：
-    鸿蒙端打印动作移交**系统打印面板**（配对一次后由系统直连打印），App 收缩为
-    「发现 → 配对 → 引导」助手；上列「选内容 → 打印」闭环在真机接管验证通过后
-    裁撤（调研 17 §4 实验进行中）。
+### Removed
+- **鸿蒙方案整体撤回**（[ADR-0014](docs/adr/0014-open-printing-mode.md)）：删除
+  `harmony/` 接收端 App；回退「配对即信任设备 IP」（`pairing.TrustedIP`）；
+  回退 631 端口别名监听与 mDNS TTL/2 周期重宣告（均未随任何版本发布过）。
+  免认证打印改由通用的「开放打印模式」承担（见下）。`pkg/client` 的黄金字节
+  wire 锁定保留。
 
 ### Changed
 - **官网（dyj.qdzwwqd.top）视觉重构**：深蓝渐变模板（渐变大字标题 + emoji 图标 +

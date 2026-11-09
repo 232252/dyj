@@ -16,15 +16,13 @@ import (
 	"github.com/232252/dyj/pkg/attributes"
 )
 
-// 黄金字节：HarmonyOS 接收端（harmony/dyj-harmony）与本包必须对同一份
-// Print-Job 请求编出完全相同的字节。fixture 文件是唯一事实源，两侧各自
-// 读取并断言，任何一侧的 wire 格式漂移都会让测试变红。
+// 黄金字节：本包对规范 Print-Job 请求编出的字节必须与 fixture 逐字节一致。
+// fixture 文件是唯一事实源，任何 wire 格式漂移都会让测试变红。
 //
-// 文件格式：一行小写十六进制（无分隔符），末尾一个换行。两侧用各自的
-// 小工具解析，Go 见 parseHex、TS 见 src/util/utf8.ts 的 toHex。
+// 文件格式：一行小写十六进制（无分隔符），末尾一个换行，解析见 parseHex。
 
 // goldenRequestAttrs 是被编码的规范请求。改动这里就等于改动 wire 格式，
-// 必须同时更新 TS 侧的对应用例并重新生成 fixture。
+// 必须重新生成 fixture。
 //
 //	request-id 1
 //	operation-attributes:
