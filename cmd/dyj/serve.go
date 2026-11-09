@@ -51,6 +51,12 @@ type serveOptions struct {
 	NoMDNS   bool   `json:"no_mdns,omitempty"`
 	Verbose  bool   `json:"verbose,omitempty"`
 	Hostname string `json:"hostname,omitempty"`
+
+	// OpenPrint keeps the data plane open to tokenless IPP from any LAN
+	// host (ADR-0014's "always on" open printing). Runtime 10-minute
+	// windows are separate in-memory state; this flag only persists the
+	// riskier always-on choice.
+	OpenPrint bool `json:"open_print,omitempty"`
 }
 
 // printerSpec is one shared printer.

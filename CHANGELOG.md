@@ -5,11 +5,20 @@ Format: [Keep a Changelog](https://keepachangelog.com/); versioning: semver.
 
 ## [Unreleased]
 
+### Added
+- **开放打印模式**（[ADR-0014](docs/adr/0014-open-printing-mode.md)）：管理页
+  服务端页新增「免认证打印」区——开启后局域网内任何设备无需配对码即可直接
+  IPP 打印。默认「开 10 分钟」自动关闭（内存态，重启即清，可随时关闭）；「一直
+  开启」需经风险确认弹窗，持久化到 service.json 并在界面上常驻「有风险」标识。
+  `POST/GET/DELETE /admin/api/open`（管理面鉴权不变，开放只作用于数据面），
+  `GET /admin/api/status` 透出 `open_printing`/`open_print_always`/
+  `open_remain_sec`；数据面放行记 `allow.ipp` 审计日志。
+
 ### Removed
 - **鸿蒙方案整体撤回**（[ADR-0014](docs/adr/0014-open-printing-mode.md)）：删除
   `harmony/` 接收端 App；回退「配对即信任设备 IP」（`pairing.TrustedIP`）；
   回退 631 端口别名监听与 mDNS TTL/2 周期重宣告（均未随任何版本发布过）。
-  免认证打印改由通用的「开放打印模式」承担（见下）。`pkg/client` 的黄金字节
+  免认证打印改由通用的「开放打印模式」承担（见上）。`pkg/client` 的黄金字节
   wire 锁定保留。
 
 ### Changed

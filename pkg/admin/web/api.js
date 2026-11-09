@@ -86,6 +86,11 @@ export const rotatePairing = () => request('pairing/rotate', { method: 'POST' })
 export const getDevices = () => request('devices');
 export const revokeDevice = (id) => request('devices/' + encodeURIComponent(id), { method: 'DELETE' });
 
+// ---- ADR-0014: 免认证开放打印（限时窗口 / 常开标志） ----
+export const getOpen = () => request('open');
+export const openStart = (body) => request('open', { method: 'POST', body });
+export const openStop = () => request('open', { method: 'DELETE' });
+
 // exportDiag：诊断包下载（research/14 §6.3）。zip 是二进制，走 blob 而非
 // request() 的 JSON 通道；令牌头照常注入，文件名取 Content-Disposition。
 export async function exportDiag() {

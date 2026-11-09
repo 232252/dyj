@@ -65,6 +65,12 @@ type Status struct {
 	Role           string          `json:"role,omitempty"`
 	Printers       []PrinterStatus `json:"printers,omitempty"`
 	PairingEnabled bool            `json:"pairing_enabled"`
+
+	// Open printing (ADR-0014): tokenless IPP data plane. RemainSec is 0
+	// while Always is set (no countdown applies) and while closed.
+	OpenPrinting    bool `json:"open_printing"`
+	OpenPrintAlways bool `json:"open_print_always"`
+	OpenRemainSec   int  `json:"open_remain_sec"`
 }
 
 // PrinterStatus is one shared printer inside Status.

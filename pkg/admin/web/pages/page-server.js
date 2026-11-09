@@ -5,6 +5,7 @@
 import {
   getConfig, saveConfig, getLocalPrinters, getPairing, rotatePairing,
   getDevices, revokeDevice, getJobs, cancelJob, pausePrinter, resumePrinter,
+  getOpen, openStart, openStop,
   errMessage, esc,
 } from '../api.js';
 import { t } from '../i18n/index.js';
@@ -14,12 +15,18 @@ import { rowMeta, confirmAction } from '../ui.js';
 import '../components/dyj-button.js';
 import '../components/dyj-job-table.js';
 
+// fmtRemain renders seconds as m:ss (the open-printing countdown).
+const fmtRemain = (s) => {
+  const n = Math.max(0, Math.floor(s || 0));
+  return `${Math.floor(n / 60)}:${String(n % 60).padStart(2, '0')}`;
+};
+
 class DyjPageServer extends HTMLElement {
   #cfg = null;
   #rows = null;          // null = 正在扫描
   #mode = 'pick';        // pick | home
   #showVirtual = false;
-  #pinTimer = 0;
+  #pollTimer = 0;        // 5s：配对码剩余 + 免认证打印倒计时
   #jobTimer = 0;
   #accepting = true;
   #onStatus = null;
@@ -39,6 +46,11 @@ class DyjPageServer extends HTMLElement {
     padding: 4px 0 2px; font-variant-numeric: tabular-nums; }
   dyj-page-server .pinrow { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
   dyj-page-server .pinhint { color: var(--dyj-text-dim); font-size: var(--dyj-fs-s); }
+  dyj-page-server .openrow { display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    margin-top: 6px; }
+  dyj-page-server .openrow .state { color: var(--dyj-text-dim); flex: 1; min-width: 200px; }
+  dyj-page-server .openrow .state.on { color: var(--dyj-danger, #c0392b);
+    font-variant-numeric: tabular-nums; }
   dyj-page-server h2 { font-size: var(--dyj-fs-l); margin: 20px 0 6px; }
   dyj-page-server .dev { display: flex; align-items: center; gap: 12px;
     padding: 8px 0; border-bottom: 1px solid var(--dyj-border); }
@@ -59,7 +71,7 @@ class DyjPageServer extends HTMLElement {
 
   disconnectedCallback() {
     window.removeEventListener('dyj-status', this.#onStatus);
-    clearInterval(this.#pinTimer);
+    clearInterval(this.#pollTimer);
     clearInterval(this.#jobTimer);
   }
 
@@ -92,9 +104,9 @@ class DyjPageServer extends HTMLElement {
   // ---- render ----
 
   #render() {
-    clearInterval(this.#pinTimer);
+    clearInterval(this.#pollTimer);
     clearInterval(this.#jobTimer);
-    this.#pinTimer = 0;
+    this.#pollTimer = 0;
     this.#jobTimer = 0;
     const root = this.querySelector('#root');
     if (this.#mode === 'pick') {
@@ -120,6 +132,13 @@ class DyjPageServer extends HTMLElement {
               <dyj-button id="rotate" variant="secondary">${t('server_pin_rotate')}</dyj-button>
               <div class="pinhint" id="pinHint" style="margin-top:6px"></div>
             </div>
+          </div>
+        </section>
+        <section id="openSec" hidden>
+          <h2>${t('server_open_title')}</h2>
+          <div class="openrow">
+            <div class="state" id="openState"></div>
+            <div id="openBtns"></div>
           </div>
         </section>
         <section>
@@ -153,7 +172,11 @@ class DyjPageServer extends HTMLElement {
     this.querySelector('#jobs').addEventListener('dyj-cancel', (ev) => this.#cancelJob(ev.detail.id));
     this.#renderPrinters();
     this.#refreshPin();
-    this.#pinTimer = setInterval(() => this.#refreshPin(), 5000);
+    this.#refreshOpen();
+    this.#pollTimer = setInterval(() => {
+      this.#refreshPin();
+      this.#refreshOpen();
+    }, 5000);
     this.#loadDevices();
     this.#refreshJobs();
     this.#jobTimer = setInterval(() => {
@@ -336,6 +359,86 @@ class DyjPageServer extends HTMLElement {
     } catch {
       if (sec) sec.hidden = true; // 配对不可用（旧服务）→ 不显示
     }
+  }
+
+  // ---- 免认证开放打印（ADR-0014）：三种状态渲染 + 两个入口 ----
+
+  async #refreshOpen() {
+    const sec = this.querySelector('#openSec');
+    if (!sec) return;
+    try {
+      const st = await getOpen();
+      sec.hidden = false;
+      this.#renderOpen(st);
+    } catch {
+      sec.hidden = true; // 端点不可用（旧服务/无权限）→ 整节不出现
+    }
+  }
+
+  #renderOpen({ enabled, always, remain_sec }) {
+    const state = this.querySelector('#openState');
+    const btns = this.querySelector('#openBtns');
+    if (!state || !btns) return;
+    btns.replaceChildren();
+    if (enabled) {
+      state.classList.add('on');
+      state.textContent = always
+        ? t('server_open_always_on')
+        : t('server_open_on', { t: fmtRemain(remain_sec) });
+      btns.append(this.#openStopBtn());
+      return;
+    }
+    state.classList.remove('on');
+    state.textContent = t('server_open_hint');
+    const b10 = document.createElement('dyj-button');
+    b10.setAttribute('variant', 'primary');
+    b10.textContent = t('server_open_start');
+    b10.addEventListener('click', async () => {
+      try {
+        await openStart({ duration_sec: 600 });
+      } catch (e) {
+        showToast(errMessage(e), 'error');
+      }
+      this.#refreshOpen();
+    });
+    const bAlways = document.createElement('dyj-button');
+    bAlways.setAttribute('variant', 'secondary');
+    bAlways.textContent = t('server_open_always');
+    bAlways.addEventListener('click', () => this.#openAlways());
+    btns.append(b10, bAlways);
+  }
+
+  #openStopBtn() {
+    const b = document.createElement('dyj-button');
+    b.setAttribute('variant', 'secondary');
+    b.textContent = t('server_open_stop');
+    b.addEventListener('click', async () => {
+      try {
+        await openStop();
+        showToast(t('server_open_closed'));
+      } catch (e) {
+        showToast(errMessage(e), 'error');
+      }
+      this.#refreshOpen();
+    });
+    return b;
+  }
+
+  // #openAlways：常开是持久的风险选择，必须先过一次红色确认框。
+  async #openAlways() {
+    const ok = await confirmDialog({
+      title: t('server_open_risk_title'),
+      body: t('server_open_risk_body'),
+      confirmText: t('server_open_risk_confirm'),
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await openStart({ always: true });
+    } catch (e) {
+      showToast(errMessage(e), 'error');
+    }
+    this.#refreshOpen();
   }
 
   async #loadDevices() {

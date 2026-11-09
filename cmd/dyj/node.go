@@ -77,6 +77,13 @@ type node struct {
 	swap    *swapHandler
 	httpSrv *http.Server
 
+	// Open printing window (ADR-0014): runtime-only, lazily expired on
+	// read — no timer goroutine, mirroring the PIN TTL pattern. The
+	// always-on choice lives in cfg.OpenPrint (persisted); applyConfig
+	// replaces cfg wholesale and must NOT touch the window.
+	openUntil time.Time
+	nowFn     func() time.Time // nil → time.Now; tests inject a fake clock
+
 	ifaces []*net.Interface
 	ips    []net.IP
 }
@@ -470,18 +477,22 @@ func (n *node) currentName() string {
 func (n *node) adminStatus() admin.Status {
 	n.mu.Lock()
 	cfg := n.cfg
+	open := n.openStateLocked()
 	n.mu.Unlock()
 	st := admin.Status{
-		Version:        dyjVersion,
-		PrinterName:    cfg.Name,
-		PrinterInfo:    "dyj shared printer",
-		Backend:        "multi",
-		Port:           n.actualPort,
-		TLSPort:        cfg.TLSPort,
-		MDNS:           !cfg.NoMDNS,
-		AdminURL:       fmt.Sprintf("http://127.0.0.1:%d/admin", n.actualPort),
-		Role:           cfg.Role,
-		PairingEnabled: n.pair != nil,
+		Version:         dyjVersion,
+		PrinterName:     cfg.Name,
+		PrinterInfo:     "dyj shared printer",
+		Backend:         "multi",
+		Port:            n.actualPort,
+		TLSPort:         cfg.TLSPort,
+		MDNS:            !cfg.NoMDNS,
+		AdminURL:        fmt.Sprintf("http://127.0.0.1:%d/admin", n.actualPort),
+		Role:            cfg.Role,
+		PairingEnabled:  n.pair != nil,
+		OpenPrinting:    open.enabled,
+		OpenPrintAlways: open.always,
+		OpenRemainSec:   open.remainSec,
 	}
 	first := true
 	for _, sp := range n.shareSlice() {
@@ -513,6 +524,11 @@ func (n *node) configGet() any {
 	return n.cfg
 }
 
+// persistOptions is the service.json sink, indirected so tests can stub it
+// (pkg/service pins the machine-wide state dir and cmd/dyj cannot retarget
+// it from outside the package).
+var persistOptions = service.SaveOptions
+
 // applyConfig validates, persists and LIVE-APPLIES a new configuration
 // (admin PUT /api/config): rebuild the share stack and the mDNS set under
 // the same listener. The returned error surfaces as HTTP 400.
@@ -525,7 +541,7 @@ func (n *node) applyConfig(raw []byte) error {
 	if err != nil {
 		return err
 	}
-	if serr := service.SaveOptions(persisted); serr != nil {
+	if serr := persistOptions(persisted); serr != nil {
 		// Live apply still holds for this process; the service context
 		// (SYSTEM/root) persists on its next save. Surface a warning.
 		n.log.Warn("cfg.save", "err", serr, "note", "本进程已生效；持久化由服务上下文完成")
@@ -559,10 +575,16 @@ func listenUpward(port int) (net.Listener, int, error) {
 	return nil, port, err
 }
 
-// gate rebuilds the data-plane gate (loopback or valid pairing token).
+// gate rebuilds the data-plane gate: loopback, then the open-printing
+// window/flag (checked BEFORE the token check — a tokenless request must
+// reach it), then a valid pairing token.
 func (n *node) gate() func(*http.Request, string) bool {
 	return func(r *http.Request, token string) bool {
 		if isLoopbackRequest(r) {
+			return true
+		}
+		if n.openActive() {
+			n.log.Info("allow.ipp", "src", hostOf(r.RemoteAddr))
 			return true
 		}
 		if token == "" || n.pair == nil {
@@ -573,6 +595,97 @@ func (n *node) gate() func(*http.Request, string) bool {
 		}
 		n.log.Info("deny.ipp", "src", hostOf(r.RemoteAddr))
 		return false
+	}
+}
+
+// ---------------------------------------------------------------------------
+// open printing state (ADR-0014): lazy-expiry window + persisted always-on
+// ---------------------------------------------------------------------------
+
+// now is the injectable clock.
+func (n *node) now() time.Time {
+	if n.nowFn != nil {
+		return n.nowFn()
+	}
+	return time.Now()
+}
+
+// openState is one locked snapshot of the open-printing surface.
+type openState struct {
+	enabled   bool
+	always    bool
+	remainSec int
+}
+
+// openStateLocked computes the snapshot under a held lock, lazily clearing
+// an expired window. Always-on reports remain 0 (no countdown applies).
+func (n *node) openStateLocked() openState {
+	if n.cfg.OpenPrint {
+		return openState{enabled: true, always: true}
+	}
+	if n.openUntil.IsZero() {
+		return openState{}
+	}
+	if !n.now().Before(n.openUntil) {
+		n.openUntil = time.Time{}
+		return openState{}
+	}
+	return openState{enabled: true, remainSec: int(n.openUntil.Sub(n.now()).Round(time.Second) / time.Second)}
+}
+
+func (n *node) openActive() bool {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.openStateLocked().enabled
+}
+
+func (n *node) openRemainSec() int {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.openStateLocked().remainSec
+}
+
+// openSetWindow starts a tokenless-printing window of d (clamped by the
+// caller). Runtime-only: nothing is persisted.
+func (n *node) openSetWindow(d time.Duration) {
+	n.mu.Lock()
+	n.openUntil = n.now().Add(d)
+	n.mu.Unlock()
+}
+
+// openSetAlways flips the persisted always-on flag. Persistence errors are
+// surfaced as a warning: like applyConfig, the live behaviour holds for
+// this process either way.
+func (n *node) openSetAlways(on bool) {
+	n.mu.Lock()
+	n.cfg.OpenPrint = on
+	raw, mErr := marshalOptions(n.cfg)
+	n.mu.Unlock()
+	if mErr != nil {
+		n.log.Warn("open.print_always", "err", mErr)
+		return
+	}
+	if err := persistOptions(raw); err != nil {
+		n.log.Warn("open.print_always", "err", err, "note", "本进程已生效；持久化由服务上下文完成")
+	}
+}
+
+// openDisable clears both the window and the always-on flag, persisting
+// only when the flag actually changed.
+func (n *node) openDisable() {
+	n.mu.Lock()
+	n.openUntil = time.Time{}
+	changed := n.cfg.OpenPrint
+	n.cfg.OpenPrint = false
+	var raw string
+	if changed {
+		raw, _ = marshalOptions(n.cfg)
+	}
+	n.mu.Unlock()
+	if changed {
+		if err := persistOptions(raw); err != nil {
+			n.log.Warn("open.print_close", "err", err, "note", "本进程已生效；持久化由服务上下文完成")
+		}
 	}
 }
 

@@ -44,6 +44,7 @@ func (n *node) extraAPIs() map[string]http.Handler {
 		"pairing":        http.HandlerFunc(n.apiPairing),
 		"pairing/rotate": http.HandlerFunc(n.apiPairingRotate),
 		"devices":        http.HandlerFunc(n.apiDevices),
+		"open":           http.HandlerFunc(n.apiOpen),
 		"diag/export":    http.HandlerFunc(n.apiDiagExport),
 	}
 }
@@ -161,6 +162,56 @@ func (n *node) apiDevices(w http.ResponseWriter, r *http.Request) {
 	default:
 		requireMethod(w, r, http.MethodGet, http.MethodDelete)
 	}
+}
+
+// apiOpen drives the open-printing mode (ADR-0014): GET reports the state,
+// POST starts a bounded window (runtime-only) or flips the persisted
+// always-on flag, DELETE clears both. The endpoint sits behind the admin
+// loopback/token gate — opening the data plane never opens the management
+// plane. Always-on wins when both fields arrive in one POST.
+func (n *node) apiOpen(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+	case http.MethodPost:
+		var req struct {
+			DurationSec int  `json:"duration_sec"`
+			Always      bool `json:"always"`
+		}
+		if !readJSONBody(w, r, &req) {
+			return
+		}
+		if req.Always {
+			n.openSetAlways(true)
+			n.log.Info("open.print_always", "src", hostOf(r.RemoteAddr))
+		} else {
+			// Missing or non-positive means the default 10 minutes; the
+			// cap keeps a stray value from turning "temporary" into a day.
+			d := 10 * time.Minute
+			if req.DurationSec > 0 {
+				d = time.Duration(req.DurationSec) * time.Second
+				if d > time.Hour {
+					d = time.Hour
+				}
+			}
+			n.openSetWindow(d)
+			n.log.Info("open.print_window", "src", hostOf(r.RemoteAddr), "sec", int(d/time.Second))
+		}
+	case http.MethodDelete:
+		n.openDisable()
+		n.log.Info("open.print_close", "src", hostOf(r.RemoteAddr))
+	default:
+		requireMethod(w, r, http.MethodGet, http.MethodPost, http.MethodDelete)
+		return
+	}
+	n.mu.Lock()
+	st := n.openStateLocked()
+	n.mu.Unlock()
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"enabled":    st.enabled,
+		"always":     st.always,
+		"remain_sec": st.remainSec,
+	})
 }
 
 // ---------------------------------------------------------------------------
