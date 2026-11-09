@@ -54,6 +54,7 @@ Phase 0 待办。
 | [`13-zero-config-redesign.md`](13-zero-config-redesign.md) | **v0.3 详细设计**：单程序角色向导、4 位码配对与 URI 路径 token、接收端自动装系统队列、进程内热生效、多打印机；可观测性契约 | ✅ 已实施（v0.3）。产品界面被 14 取代；技术章节继续有效。非目标是「不转发 mDNS」，不是「跨网段完全不能用」 |
 | [`14-minimal-two-mode-redesign.md`](14-minimal-two-mode-redesign.md) | **v0.4 详细设计（界面极简重构）**：7 项侧栏/8 路由 → 4 路由无侧栏、角色即主页、零设置、文案禁用词、诊断导出 | ✅ 已实施（v0.4.0，[ADR-0011](../adr/0011-minimal-two-mode-ui.md)）。§9 开放问题已关闭或标成现场项 |
 | [`15-discovery-cross-subnet-mesh.md`](15-discovery-cross-subnet-mesh.md) | **附录 H**：跨网段扫不到的根因（mDNS 链路本地 / 曾无手动地址 / el 旧构建）。P1 按地址添加、P4 去重、P2 已知节点重发现已实施；P0 el 升级仍是现场运维 | ✅ Lead 实测；代码项已实施，el 升级未做 |
+| [`16-harmony-receiver-design.md`](16-harmony-receiver-design.md) | **鸿蒙手机接收端设计**：RNOH 路线选型、版本矩阵（RN 0.84.1 / RNOH 0.84.5）、服务端协议事实、SDK .d.ts 取证、MAX_PATH 等踩坑记录 | ✅ 已实施（[ADR-0012](../adr/0012-harmony-receiver-rnoh.md)）。签名与真机验收仍归用户 |
 
 ## 三句话结论
 

@@ -5,6 +5,27 @@ Format: [Keep a Changelog](https://keepachangelog.com/); versioning: semver.
 
 ## [Unreleased]
 
+### Added
+- **鸿蒙手机端（接收端）**：新增 `harmony/` —— React Native 鸿蒙化（RNOH
+  0.84.5 / RN 0.84.1）实现的手机接收端，闭环是「发现共享端 → 输入 4 位配对码
+  → 选内容 → 打印」，首版支持图片 + 文字 + PDF。**服务端零改动**：配对走现成的
+  `POST /pair`，打印走现成的 `POST /p/<令牌>/ipp/print/<打印机>`。
+  - 协议编解码在 TS 侧（可单测），平台能力在 ArkTS TurboModule 侧：六个模块
+    `DyjHttp` / `DyjMdns` / `DyjPrefs` / `DyjFiles` / `DyjImage` / `DyjPdf`，
+    跨桥只传字符串。
+  - **IPP wire 格式与 Go 侧共用同一份黄金字节**（`pkg/client/testdata/
+    print_job.hex`）：Go 侧生成、两侧各自断言，任何一侧漂移两边同时变红。
+    Go 侧为此把 `pkg/client/client.go` 的编码抽成 `encodeRequest`（字节级不变）
+    并新增 `golden_test.go`。
+  - mDNS 扫两轮（先 PTR 拿实例名，再带实例名问 SRV/TXT/A），去重键是实例全名，
+    多网卡端点全部保留；另有「按地址添加」兜底。
+  - PDF **默认在端上渲染**成逐页 JPEG 逐页打印（服务端只有装了 poppler 才声明
+    `application/pdf`），「保持原样直传」是默认关闭的可选开关。
+  - 交付**未签名 HAP**（release 约 19 MB，自带 JS bundle，可脱离 metro 运行）；
+    签名与装机步骤见 `harmony/README.md`。签名材料不入库。
+  - 决策记录：[ADR-0012](docs/adr/0012-harmony-receiver-rnoh.md)；
+    版本矩阵、SDK 取证与踩坑记录：[调研 16](docs/research/16-harmony-receiver-design.md)。
+
 ### Changed
 - **官网（dyj.qdzwwqd.top）视觉重构**：深蓝渐变模板（渐变大字标题 + emoji 图标 +
   圆角浮卡 + pill 徽章）改为浅色克制工具风——白底墨字 + 单一强调色 `#2563eb`

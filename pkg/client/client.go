@@ -239,9 +239,19 @@ func (c *Client) Cancel(id int32) error {
 	return nil
 }
 
-// roundTrip encodes one IPP request, POSTs it, and decodes the response.
-// gzipOutput (set only by Print-Job) compresses the document stream.
-func (c *Client) roundTrip(op uint16, opAttrs, jobAttrs []attributes.Attribute, doc io.Reader, gzipOutput bool) (*attributes.Message, error) {
+// encodeRequest builds the IPP request frame: version 2.0, the operation id,
+// request id 1, the operation-attributes group, the optional job-attributes
+// group and the end-of-attributes delimiter.
+//
+// The document stream is NOT part of the frame — callers append it (and
+// optionally gzip it) themselves. Keeping the frame separate is what lets
+// the golden-file test assert the wire format byte for byte instead of
+// sniffing it out of an HTTP round trip.
+//
+// Every attribute group leads with attributes-charset and
+// attributes-natural-language (RFC 8011 §4.1.4). That is the existing wire
+// behaviour of this package and the HarmonyOS client mirrors it exactly.
+func encodeRequest(op uint16, opAttrs, jobAttrs []attributes.Attribute) ([]byte, error) {
 	var body bytes.Buffer
 	body.Write([]byte{2, 0, byte(op >> 8), byte(op)}) // version 2.0
 	_ = binary.Write(&body, binary.BigEndian, int32(1))
@@ -256,6 +266,18 @@ func (c *Client) roundTrip(op uint16, opAttrs, jobAttrs []attributes.Attribute, 
 		}
 	}
 	body.WriteByte(attributes.TagEndOfAttributes)
+	return body.Bytes(), nil
+}
+
+// roundTrip encodes one IPP request, POSTs it, and decodes the response.
+// gzipOutput (set only by Print-Job) compresses the document stream.
+func (c *Client) roundTrip(op uint16, opAttrs, jobAttrs []attributes.Attribute, doc io.Reader, gzipOutput bool) (*attributes.Message, error) {
+	frame, err := encodeRequest(op, opAttrs, jobAttrs)
+	if err != nil {
+		return nil, err
+	}
+	var body bytes.Buffer
+	body.Write(frame)
 	if doc != nil {
 		sink := io.Writer(&body)
 		var zw *gzip.Writer
