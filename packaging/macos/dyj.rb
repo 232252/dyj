@@ -8,26 +8,26 @@ class Dyj < Formula
   homepage "https://github.com/232252/dyj"
   # Tracks the latest published GitHub Release, not the in-tree version.
   # Each release tag refreshes these sha256 marks (see .github/workflows/release.yml).
-  version "0.4.4"
+  version "0.5.0"
   license "Apache-2.0"
 
   on_macos do
     if Hardware::CPU.arm?
       url "https://github.com/232252/dyj/releases/download/v#{version}/dyj-darwin-arm64.tar.gz"
-      sha256 "dba495993897a5f8d66b1c7c91e945d7fc3ebb353efb196c005da4e993868aa8" # mark: darwin-arm64
+      sha256 "371dfaf680bd90dfba4ed1b3850c3349fefd95ad22ebe008b1874747aed9f46d" # mark: darwin-arm64
     else
       url "https://github.com/232252/dyj/releases/download/v#{version}/dyj-darwin-amd64.tar.gz"
-      sha256 "854198f2b944b5f203a95e3d1cd6a028241ec0ff1697565c6aab58920aac8324" # mark: darwin-amd64
+      sha256 "f4a44e7002955eb9835beb147c1bf11349c32254d1793eefd3b0fe93854c3ef0" # mark: darwin-amd64
     end
   end
 
   on_linux do
     if Hardware::CPU.arm? && Hardware::CPU.is_64_bit?
       url "https://github.com/232252/dyj/releases/download/v#{version}/dyj-linux-arm64.tar.gz"
-      sha256 "f6f445e93f9f156bc644cb7f95d499345506e80ca16def993209268ea04aca4a" # mark: linux-arm64
+      sha256 "3ccf5d0f94ee2b7946bbdc6b9d9a772fda5ec627afe8f932b98b0a2ba5b77524" # mark: linux-arm64
     else
       url "https://github.com/232252/dyj/releases/download/v#{version}/dyj-linux-amd64.tar.gz"
-      sha256 "f5bc9031a7188821c6bbb21463afc679a60b063f651df9c9722d5b923e138037" # mark: linux-amd64
+      sha256 "1bf4d9d6ca13861e14543fee12473e6be51d94a0f251556b2d3abb62661bc17c" # mark: linux-amd64
     end
   end
 
