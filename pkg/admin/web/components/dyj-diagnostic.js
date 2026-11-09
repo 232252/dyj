@@ -1,5 +1,7 @@
 // dyj-diagnostic：单条诊断。level=ok|warn|fail|info → 级别图标+彩色左边线+
-// 级别词（不只靠颜色）；可选 fix 建议命令渲染为代码块并附一键复制。
+// 级别词（不只靠颜色）；可选 fix 建议命令渲染为代码块并附一键复制；
+// can_fix 的检查再附“自动修复”按钮，点击冒泡 dyj-repair 事件
+// （composed，穿过 shadow 边界），busy 置位期间按钮禁用。
 import './dyj-icon.js';
 import { copyText } from './dyj-copy-field.js';
 import { esc } from '../api.js';
@@ -18,11 +20,23 @@ const TONE_LINE = { ok: 'success', warn: 'warning', bad: 'danger', dim: 'border'
 
 class DyjDiagnostic extends HTMLElement {
   #check = null;
+  #busy = false;
 
   constructor() { super(); this.attachShadow({ mode: 'open' }); }
 
   set check(v) { this.#check = v || {}; this.#render(); }
   get check() { return this.#check; }
+
+  set busy(v) {
+    this.#busy = !!v;
+    const btn = this.shadowRoot.querySelector('.fixbtn');
+    if (btn) {
+      btn.disabled = this.#busy;
+      btn.textContent = this.#busy ? t('help_fix_running') : t('help_fix_btn');
+    }
+  }
+
+  get busy() { return this.#busy; }
 
   #render() {
     const c = this.#check || {};
@@ -54,21 +68,36 @@ class DyjDiagnostic extends HTMLElement {
     background: var(--dyj-card); color: var(--dyj-text); cursor: pointer; }
   .cp:hover { border-color: var(--dyj-primary); }
   .cp:focus-visible { outline: 2px solid var(--dyj-primary); outline-offset: 1px; }
+  .cp:disabled { opacity: .55; cursor: default; }
+  .fixbtn { color: var(--dyj-primary); border-color: var(--dyj-primary); }
 </style>
 <div class="row">
   <dyj-icon name="${icon}"></dyj-icon>
   <div class="txt">
     <div class="l1"><code class="name">${esc(c.name || '')}</code><span class="lv">${t(key)}</span></div>
     <p class="detail">${esc(c.detail || '')}</p>
-    ${c.fix ? `<div class="fix"><pre><code>${esc(c.fix)}</code></pre><button type="button" class="cp">${t('btn_copy')}</button></div>` : ''}
+    ${c.fix || c.can_fix ? `<div class="fix">
+      ${c.fix ? `<pre><code>${esc(c.fix)}</code></pre>` : ''}
+      ${c.fix ? `<button type="button" class="cp">${t('btn_copy')}</button>` : ''}
+      ${c.can_fix ? `<button type="button" class="cp fixbtn" ${this.#busy ? 'disabled' : ''}>${this.#busy ? t('help_fix_running') : t('help_fix_btn')}</button>` : ''}
+    </div>` : ''}
   </div>
 </div>`;
-    const btn = this.shadowRoot.querySelector('.cp');
-    if (btn) {
-      btn.addEventListener('click', async () => {
+    const cp = this.shadowRoot.querySelector('.fix .cp:not(.fixbtn)');
+    if (cp) {
+      cp.addEventListener('click', async () => {
         await copyText(c.fix);
-        btn.textContent = t('btn_copied');
-        setTimeout(() => { btn.textContent = t('btn_copy'); }, 1600);
+        cp.textContent = t('btn_copied');
+        setTimeout(() => { cp.textContent = t('btn_copy'); }, 1600);
+      });
+    }
+    const fbtn = this.shadowRoot.querySelector('.fixbtn');
+    if (fbtn) {
+      fbtn.addEventListener('click', () => {
+        if (this.#busy) return;
+        this.dispatchEvent(new CustomEvent('dyj-repair', {
+          bubbles: true, composed: true, detail: { name: c.name },
+        }));
       });
     }
   }

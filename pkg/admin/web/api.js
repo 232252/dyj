@@ -91,6 +91,9 @@ export const getOpen = () => request('open');
 export const openStart = (body) => request('open', { method: 'POST', body });
 export const openStop = () => request('open', { method: 'DELETE' });
 
+// ---- 自修复：check 为检查名（firewall/tls/state-dir/pdf）或 "all" ----
+export const repairCheck = (check) => request('repair', { method: 'POST', body: { check } });
+
 // exportDiag：诊断包下载（research/14 §6.3）。zip 是二进制，走 blob 而非
 // request() 的 JSON 通道；令牌头照常注入，文件名取 Content-Disposition。
 export async function exportDiag() {

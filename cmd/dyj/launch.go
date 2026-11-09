@@ -94,16 +94,21 @@ func cmdOpen(args []string) error {
 }
 
 // cmdSetupHelper is the elevated one-shot child on Windows (research/13
-// §4.6): install the queue named in --spec, report via --result.
+// §4.6): install the queue named in --spec, or (--fix-firewall) add the
+// firewall allow rules, reporting via --result.
 func cmdSetupHelper(args []string) error {
 	fs := flag.NewFlagSet("setup-helper", flag.ContinueOnError)
-	specPath := fs.String("spec", "", "queue spec JSON file")
+	specPath := fs.String("spec", "", "spec JSON file (queue spec / firewall spec)")
 	resPath := fs.String("result", "", "result JSON file")
+	fixFW := fs.Bool("fix-firewall", false, "add the dyj firewall allow rules instead of installing a queue")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if *specPath == "" || *resPath == "" {
 		return errors.New("setup-helper: --spec and --result are required")
+	}
+	if *fixFW {
+		return runFirewallHelper(*specPath, *resPath)
 	}
 	return runSetupHelper(*specPath, *resPath)
 }

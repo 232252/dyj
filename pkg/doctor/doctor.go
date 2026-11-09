@@ -12,7 +12,9 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/232252/dyj/pkg/discovery"
@@ -20,12 +22,15 @@ import (
 )
 
 // Check is one diagnostic result. Name is a stable id (the UI keys
-// localized text off it); Detail/Fix are human strings.
+// localized text off it); Detail/Fix are human strings. CanFix marks the
+// checks whose Fix the repair endpoint (admin POST /api/repair,
+// `dyj doctor --fix`) can perform automatically.
 type Check struct {
 	Name   string `json:"name"`
 	Level  string `json:"level"` // ok | warn | fail | info
 	Detail string `json:"detail"`
 	Fix    string `json:"fix,omitempty"`
+	CanFix bool   `json:"can_fix,omitempty"`
 }
 
 // Params configures a doctor run.
@@ -62,7 +67,7 @@ func Run(p Params) []Check {
 	}
 	out = append(out, checkTLS(p))
 	out = append(out, checkPDF())
-	out = append(out, checkFirewall())
+	out = append(out, checkFirewall(p))
 	out = append(out, checkBackend(p))
 	if p.MDNS && len(p.MDNSInstances) > 0 {
 		out = append(out, checkMDNSEgress(p))
@@ -113,7 +118,7 @@ func checkStateDir(p Params) Check {
 	}
 	probe := filepath.Join(p.StateDir, ".doctor-probe")
 	if err := os.WriteFile(probe, []byte("ok"), 0o600); err != nil {
-		return Check{Name: "state-dir", Level: LevelFail,
+		return Check{Name: "state-dir", Level: LevelFail, CanFix: true,
 			Detail: "状态目录不可写: " + p.StateDir,
 			Fix:    "检查目录权限；Windows 服务账户需要 %ProgramData%\\dyj 的写权限"}
 	}
@@ -161,8 +166,9 @@ func checkTLS(p Params) Check {
 	}
 	crt := filepath.Join(p.StateDir, "tls.crt")
 	if _, err := os.Stat(crt); err != nil {
-		return Check{Name: "tls", Level: LevelWarn, Detail: "TLS 证书缺失，ipps 客户端将握手失败",
-			Fix: "重启服务自动生成自签证书，或删除损坏的 tls.crt"}
+		return Check{Name: "tls", Level: LevelWarn, CanFix: true,
+			Detail: "TLS 证书缺失，ipps 客户端将握手失败",
+			Fix:    "重启服务自动生成自签证书，或删除损坏的 tls.crt"}
 	}
 	return Check{Name: "tls", Level: LevelOK, Detail: "TLS 证书就绪"}
 }
@@ -171,18 +177,18 @@ func checkPDF() Check {
 	if driver.PDFAvailable() {
 		return Check{Name: "pdf", Level: LevelOK, Detail: "PDF 支持已启用（pdftoppm）"}
 	}
-	return Check{Name: "pdf", Level: LevelInfo,
+	return Check{Name: "pdf", Level: LevelInfo, CanFix: runtime.GOOS == "windows",
 		Detail: "PDF 未启用（未找到 pdftoppm）",
 		Fix:    "安装 poppler-utils（Linux）/ poppler（brew, choco）后重启服务即可声明 application/pdf"}
 }
 
-func checkFirewall() Check {
+// checkFirewall grades the platform's inbound allow rules against what
+// this node actually serves. Windows probes the real rule table; the
+// other platforms stay advisory.
+func checkFirewall(p Params) Check {
 	switch runtime.GOOS {
 	case "windows":
-		return Check{Name: "firewall", Level: LevelInfo,
-			Detail: "Windows 防火墙需放行 TCP 6631 与 UDP 5353（三个网络配置文件都要）",
-			Fix:    `netsh advfirewall firewall add rule name="dyj IPP" dir=in action=allow program="<dyj.exe 路径>" protocol=TCP localport=6631 profile=domain,private,public`,
-		}
+		return checkFirewallWindows(p)
 	case "darwin":
 		return Check{Name: "firewall", Level: LevelInfo,
 			Detail: "macOS 应用防火墙默认关闭；若手动开启，需允许 dyj 接收入站连接",
@@ -192,6 +198,143 @@ func checkFirewall() Check {
 			Detail: "多数发行版默认不拦入站；firewalld（Fedora/RHEL）需放行",
 			Fix:    "firewall-cmd --permanent --add-port=6631/tcp && firewall-cmd --reload"}
 	}
+}
+
+// firewallRule is one inbound allow rule as reported by the platform
+// probe (Windows Defender Firewall, queried via PowerShell so the field
+// names do not depend on the OS display language).
+type firewallRule struct {
+	Name      string
+	Enabled   bool
+	Direction string // "in" (normalized lowercase)
+	Protocol  string // "tcp" / "udp"
+	LocalPort string // raw field: "6631", "6631-6640,7000", or "Any"
+	Program   string // exe path, or ""/Any when not program-scoped
+}
+
+// probeFirewallRulesFn is the platform rule-table reader; tests swap it
+// for a fake table (the real one shells out and only exists on Windows).
+// The default entry caches for fwCacheTTL because the underlying probe
+// costs seconds (PowerShell + CIM); the repair layer invalidates right
+// after changing rules so a re-check is never stale across a fix.
+var probeFirewallRulesFn = probeFirewallRulesCached
+
+const fwCacheTTL = 10 * time.Second
+
+var (
+	fwMu         sync.Mutex
+	fwCacheRules []firewallRule
+	fwCacheErr   error
+	fwCacheAt    time.Time
+)
+
+func probeFirewallRulesCached() ([]firewallRule, error) {
+	fwMu.Lock()
+	defer fwMu.Unlock()
+	if fwCacheAt.IsZero() || time.Since(fwCacheAt) > fwCacheTTL {
+		fwCacheRules, fwCacheErr = probeFirewallRules()
+		fwCacheAt = time.Now()
+	}
+	return fwCacheRules, fwCacheErr
+}
+
+// InvalidateFirewallProbe drops the cached firewall rule table so the
+// next check re-probes.
+func InvalidateFirewallProbe() {
+	fwMu.Lock()
+	defer fwMu.Unlock()
+	fwCacheAt = time.Time{}
+}
+
+// osExecutableFn is os.Executable, swappable in tests (the test binary's
+// own path is a random temp dir, not the dyj install path).
+var osExecutableFn = os.Executable
+
+func checkFirewallWindows(p Params) Check {
+	rules, err := probeFirewallRulesFn()
+	if err != nil {
+		// Probe unavailable (legacy Windows without the NetSecurity
+		// module, PowerShell blocked, ...) — keep the advisory, don't cry
+		// wolf about rules we cannot see.
+		return Check{Name: "firewall", Level: LevelInfo,
+			Detail: "无法读取防火墙规则；Windows 防火墙需放行本服务的入站连接",
+			Fix:    firewallFixCmd(p)}
+	}
+	exe, _ := osExecutableFn()
+	var missing []string
+	if p.Port > 0 && !ruleCovers(rules, "dyj IPP", "tcp", p.Port, exe) {
+		missing = append(missing, fmt.Sprintf("TCP %d", p.Port))
+	}
+	if p.TLSPort > 0 && !ruleCovers(rules, "dyj IPPS", "tcp", p.TLSPort, exe) {
+		missing = append(missing, fmt.Sprintf("TCP %d", p.TLSPort))
+	}
+	if !ruleCovers(rules, "dyj mDNS", "udp", 5353, exe) {
+		missing = append(missing, "UDP 5353")
+	}
+	if len(missing) > 0 {
+		return Check{Name: "firewall", Level: LevelWarn, CanFix: true,
+			Detail: "Windows 防火墙缺少放行规则（" + strings.Join(missing, "、") + "），局域网设备可能连不上",
+			Fix:    firewallFixCmd(p)}
+	}
+	return Check{Name: "firewall", Level: LevelOK, Detail: "防火墙已放行本服务的入站连接"}
+}
+
+// ruleCovers reports whether an enabled inbound rule covers proto:port
+// for our binary (a non-program-scoped rule that matches the port is
+// equally effective).
+func ruleCovers(rules []firewallRule, name, proto string, port int, exe string) bool {
+	for _, r := range rules {
+		if r.Name != name || !r.Enabled || r.Direction != "in" || r.Protocol != proto {
+			continue
+		}
+		if !portInRange(r.LocalPort, port) {
+			continue
+		}
+		if r.Program == "" || strings.EqualFold(r.Program, "any") || exe == "" ||
+			strings.EqualFold(r.Program, exe) {
+			return true
+		}
+	}
+	return false
+}
+
+func portInRange(field string, port int) bool {
+	for _, part := range strings.Split(field, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" || strings.EqualFold(part, "any") {
+			return true
+		}
+		if lo, hi, ok := strings.Cut(part, "-"); ok {
+			l, e1 := strconv.Atoi(strings.TrimSpace(lo))
+			h, e2 := strconv.Atoi(strings.TrimSpace(hi))
+			if e1 == nil && e2 == nil && port >= l && port <= h {
+				return true
+			}
+			continue
+		}
+		if n, err := strconv.Atoi(part); err == nil && n == port {
+			return true
+		}
+	}
+	return false
+}
+
+// firewallFixCmd renders the manual netsh command with this binary's real
+// path and ports — what the repair endpoint executes automatically.
+func firewallFixCmd(p Params) string {
+	exe, err := osExecutableFn()
+	if err != nil {
+		exe = "<dyj.exe 路径>"
+	}
+	var cmds []string
+	if p.Port > 0 {
+		cmds = append(cmds, fmt.Sprintf(`netsh advfirewall firewall add rule name="dyj IPP" dir=in action=allow program="%s" protocol=TCP localport=%d profile=domain,private,public`, exe, p.Port))
+	}
+	if p.TLSPort > 0 {
+		cmds = append(cmds, fmt.Sprintf(`netsh advfirewall firewall add rule name="dyj IPPS" dir=in action=allow program="%s" protocol=TCP localport=%d profile=domain,private,public`, exe, p.TLSPort))
+	}
+	cmds = append(cmds, fmt.Sprintf(`netsh advfirewall firewall add rule name="dyj mDNS" dir=in action=allow program="%s" protocol=UDP localport=5353 profile=domain,private,public`, exe))
+	return strings.Join(cmds, " && ")
 }
 
 func checkBackend(p Params) Check {

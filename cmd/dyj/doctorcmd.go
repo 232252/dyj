@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"path/filepath"
 	"time"
 
@@ -16,10 +17,13 @@ import (
 // cmdDoctor runs the diagnostics and prints them human-readable
 // (default) or as JSON (--json). Exit code stays 0 for warn/info —
 // only "fail" (something is broken on this machine) fails the run.
+// --fix <name|all> runs the same repairs as the admin UI's 自修复 and
+// re-checks afterwards; with --json the "checks" are the post-fix run.
 func cmdDoctor(args []string) error {
 	var o serveOptions
 	asJSON := false
 	asClient := false
+	fixTarget := ""
 	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
 	fs.IntVar(&o.Port, "port", 6631, "IPP port to check")
 	fs.IntVar(&o.TLSPort, "tls-port", 0, "ipps port")
@@ -29,32 +33,72 @@ func cmdDoctor(args []string) error {
 	fs.StringVar(&o.Spool, "spool", "", "state dir")
 	fs.BoolVar(&asClient, "client", false, "check the added network printers instead of the share side")
 	fs.BoolVar(&asJSON, "json", false, "machine-readable output")
+	fs.StringVar(&fixTarget, "fix", "", "auto-fix after checks: a check name or \"all\" fixable ones, then re-check")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
+	stateDir := o.Spool
+	if stateDir == "" {
+		stateDir = defaultStateDir()
+	}
+
 	var checks []doctor.Check
 	if asClient {
-		stateDir := o.Spool
-		if stateDir == "" {
-			stateDir = defaultStateDir()
+		if fixTarget != "" {
+			return errors.New("doctor: --client 检查暂不支持 --fix（重装队列走管理页的添加流程）")
 		}
 		checks = runClientChecks(stateDir)
 	} else {
 		checks = doctor.Run(doctorParams(o, o.Spool, false))
 	}
-	if asJSON {
-		return json.NewEncoder(os.Stdout).Encode(map[string]any{"checks": checks})
+
+	var fixed []repairOutcome
+	if fixTarget != "" && !asClient {
+		var targets []string
+		switch fixTarget {
+		case "all":
+			for _, c := range checks {
+				if c.CanFix {
+					targets = append(targets, c.Name)
+				}
+			}
+		default:
+			if _, ok := repairFuncs[fixTarget]; !ok {
+				return fmt.Errorf("doctor: 未知或不可自动修复的检查项 %q（可选: all 或 %s）", fixTarget, strings.Join(repairOrder, "/"))
+			}
+			targets = []string{fixTarget}
+		}
+		rc := repairCtx{cfg: o, stateDir: stateDir}
+		for _, name := range targets {
+			res := repairFuncs[name](rc)
+			res.Check = name
+			fixed = append(fixed, res)
+		}
+		checks = doctor.Run(doctorParams(o, o.Spool, false))
 	}
-	icon := map[string]string{
-		doctor.LevelOK: "[ ok ]", doctor.LevelWarn: "[警告]", doctor.LevelFail: "[失败]", doctor.LevelInfo: "[说明]",
+
+	if asJSON {
+		return json.NewEncoder(os.Stdout).Encode(map[string]any{"checks": checks, "fixed": fixed})
+	}
+	printDoctorChecks(checks)
+	if len(fixed) > 0 {
+		fmt.Println("\n自动修复:")
+		for _, res := range fixed {
+			status := "已修复"
+			switch {
+			case res.Skipped:
+				status = "无需修复"
+			case !res.OK:
+				status = "[失败]"
+			}
+			fmt.Printf("[修复] %-10s %s %s\n", res.Check, status, res.Detail)
+		}
+		fmt.Println("\n修复后复查:")
+		printDoctorChecks(checks)
 	}
 	failed := false
 	for _, c := range checks {
-		fmt.Printf("%s %-10s %s\n", icon[c.Level], c.Name, c.Detail)
-		if c.Fix != "" {
-			fmt.Printf("             └─ %s\n", c.Fix)
-		}
 		if c.Level == doctor.LevelFail {
 			failed = true
 		}
@@ -63,6 +107,22 @@ func cmdDoctor(args []string) error {
 		return errors.New("doctor: 存在失败项")
 	}
 	return nil
+}
+
+func printDoctorChecks(checks []doctor.Check) {
+	icon := map[string]string{
+		doctor.LevelOK: "[ ok ]", doctor.LevelWarn: "[警告]", doctor.LevelFail: "[失败]", doctor.LevelInfo: "[说明]",
+	}
+	for _, c := range checks {
+		fix := ""
+		if c.CanFix {
+			fix = "（可用 dyj doctor --fix " + c.Name + " 自动修复）"
+		}
+		fmt.Printf("%s %-10s %s%s\n", icon[c.Level], c.Name, c.Detail, fix)
+		if c.Fix != "" {
+			fmt.Printf("             └─ %s\n", c.Fix)
+		}
+	}
 }
 
 // doctorParams derives the doctor input from the v2 options (first

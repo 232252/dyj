@@ -1,9 +1,10 @@
 // 帮助页（#/help，v0.4 research/14 §3.5）：全产品唯一放技术信息的地方。
-// 常见问题（人话）→ 运行自检（doctor）→ 导出诊断包 → 日志（折叠只读）→
+// 常见问题（人话）→ 运行自检（doctor）→ 自修复 → 导出诊断包 → 日志（折叠只读）→
 // 关于（版本/角色/服务端口，只在此处可见）。其余界面永不出现工程术语。
-import { getDiagnostics, exportDiag, getStatus, getConfig, errMessage, esc } from '../api.js';
+import { getDiagnostics, exportDiag, repairCheck, getStatus, getConfig, errMessage, esc } from '../api.js';
 import { t } from '../i18n/index.js';
 import { showToast } from '../components/dyj-toast.js';
+import { confirmDialog } from '../components/dyj-modal.js';
 import '../components/dyj-diagnostic.js';
 import '../components/dyj-disclosure.js';
 import '../components/dyj-log-viewer.js';
@@ -41,6 +42,7 @@ class DyjPageHelp extends HTMLElement {
   <div class="sum" id="sum"></div>
   <div class="nav" style="margin-top:10px">
     <dyj-button id="recheck" variant="secondary">${t('help_check_btn')}</dyj-button>
+    <dyj-button id="fixall" variant="secondary">${t('help_fix_all')}</dyj-button>
   </div>
 </section>
 
@@ -62,6 +64,7 @@ class DyjPageHelp extends HTMLElement {
   </dyj-disclosure>
 </section>`;
     this.querySelector('#recheck').addEventListener('click', () => this.#runChecks());
+    this.querySelector('#fixall').addEventListener('click', () => this.#repairAll());
     this.querySelector('#diagBtn').addEventListener('click', () => this.#export());
     this.#runChecks();
     this.#loadAbout();
@@ -79,13 +82,72 @@ class DyjPageHelp extends HTMLElement {
       box.replaceChildren(...list.map((c) => {
         const d = document.createElement('dyj-diagnostic');
         d.check = c;
+        if (c.can_fix) d.addEventListener('dyj-repair', () => this.#repairOne(c.name, d));
         return d;
       }));
       const bad = list.filter((c) => c.level === 'fail').length;
       const warn = list.filter((c) => c.level === 'warn').length;
       if (sum) sum.textContent = t('help_check_summary', { total: list.length, bad, warn });
+      return list;
     } catch (e) {
       box.innerHTML = `<div class="dim">${esc(errMessage(e))}</div>`;
+      return [];
+    }
+  }
+
+  // #repairOne：单项修复（卡片上的“自动修复”按钮）。确认 → 调接口 →
+  // 汇报 → 重跑自检让所有卡片反映修复后的状态。
+  async #repairOne(name, el) {
+    if (!(await confirmDialog({
+      title: t('help_fix_confirm_title'),
+      body: t('help_fix_confirm_body'),
+      confirmText: t('help_fix_btn'),
+    }))) return;
+    el.busy = true;
+    try {
+      const { results } = await repairCheck(name);
+      this.#toastResults(results);
+    } catch (e) {
+      showToast(t('help_fix_fail') + '：' + errMessage(e), 'error');
+    } finally {
+      el.busy = false;
+    }
+    await this.#runChecks();
+  }
+
+  // #repairAll：一键修复（fix-all 走服务端顺序执行，UAC 至多弹一次）。
+  async #repairAll() {
+    const anyFixable = [...this.querySelectorAll('#checks dyj-diagnostic')]
+      .some((d) => d.check?.can_fix);
+    if (!anyFixable) {
+      showToast(t('help_fix_nothing'));
+      return;
+    }
+    if (!(await confirmDialog({
+      title: t('help_fix_confirm_title'),
+      body: t('help_fix_confirm_all_body'),
+      confirmText: t('help_fix_all'),
+    }))) return;
+    const btn = this.querySelector('#fixall');
+    btn.setAttribute('loading', '');
+    try {
+      const { results } = await repairCheck('all');
+      this.#toastResults(results);
+    } catch (e) {
+      showToast(t('help_fix_fail') + '：' + errMessage(e), 'error');
+    } finally {
+      btn.removeAttribute('loading');
+    }
+    await this.#runChecks();
+  }
+
+  #toastResults(results) {
+    const list = results || [];
+    const bad = list.filter((r) => !r.ok);
+    if (bad.length === 0) {
+      showToast(t('help_fix_done') + (list.length ? '：' + list.map((r) => r.detail).join('；') : ''));
+    } else {
+      showToast(t('help_fix_fail') + '：' + bad.map((r) => r.detail).join('；'), 'error');
     }
   }
 

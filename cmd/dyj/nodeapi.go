@@ -45,6 +45,7 @@ func (n *node) extraAPIs() map[string]http.Handler {
 		"pairing/rotate": http.HandlerFunc(n.apiPairingRotate),
 		"devices":        http.HandlerFunc(n.apiDevices),
 		"open":           http.HandlerFunc(n.apiOpen),
+		"repair":         http.HandlerFunc(n.apiRepair),
 		"diag/export":    http.HandlerFunc(n.apiDiagExport),
 	}
 }
