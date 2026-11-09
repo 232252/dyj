@@ -13,6 +13,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/); versioning: semver.
   `POST/GET/DELETE /admin/api/open`（管理面鉴权不变，开放只作用于数据面），
   `GET /admin/api/status` 透出 `open_printing`/`open_print_always`/
   `open_remain_sec`；数据面放行记 `allow.ipp` 审计日志。
+- **自检自修复**：帮助页自检新增「自动修复」。防火墙检查从固定提示升级为
+  真实探测（按本机规则的放行端口与程序路径逐项核对，缺失时标为「需注意」
+  并给出修复按钮）；可修复项（防火墙放行、加密证书重建、状态目录、PDF 组件
+  安装）逐项显示「自动修复」，另有「一键修复」批量执行。`POST
+  /admin/api/repair`（沿用管理面鉴权；防火墙修复经一次管理员确认弹窗），
+  命令行同等能力：`dyj doctor --fix <检查名|all>`。修复结果以复查为准，
+  修复后自动重跑自检。
 
 ### Removed
 - **鸿蒙方案整体撤回**（[ADR-0014](docs/adr/0014-open-printing-mode.md)）：删除
