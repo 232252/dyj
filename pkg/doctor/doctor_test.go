@@ -88,6 +88,8 @@ func TestFileBackendWarns(t *testing.T) {
 	}
 }
 
+// withFakeRules 注入假规则表。分级用例直接调 checkFirewallWindows 纯函数
+// 而非 Run()：CI 在 Linux 上跑测试，Run 的 GOOS 分支到不了 windows 逻辑。
 func withFakeRules(t *testing.T, rules []firewallRule, err error) {
 	t.Helper()
 	old := probeFirewallRulesFn
@@ -119,7 +121,7 @@ func TestFirewallProbeOk(t *testing.T) {
 		{Name: "dyj IPP", Enabled: true, Direction: "in", Protocol: "tcp", LocalPort: "6631", Program: `C:\x\DYJ.EXE`},
 		{Name: "dyj mDNS", Enabled: true, Direction: "in", Protocol: "udp", LocalPort: "5353", Program: `C:\x\dyj.exe`},
 	}, nil)
-	c := findCheck(t, Run(Params{Port: 6631}), "firewall")
+	c := checkFirewallWindows(Params{Port: 6631})
 	if c.Level != LevelOK {
 		t.Errorf("covered rules should grade ok, got %+v", c)
 	}
@@ -131,7 +133,7 @@ func TestFirewallProbeOk(t *testing.T) {
 func TestFirewallProbeMissingWarnsAndFixable(t *testing.T) {
 	withFakeExe(t, `C:\x\dyj.exe`)
 	withFakeRules(t, nil, nil)
-	c := findCheck(t, Run(Params{Port: 6631}), "firewall")
+	c := checkFirewallWindows(Params{Port: 6631})
 	if c.Level != LevelWarn || !c.CanFix {
 		t.Fatalf("missing rules should warn+can_fix, got %+v", c)
 	}
@@ -149,7 +151,7 @@ func TestFirewallProbeRangeAndAnyProgramCover(t *testing.T) {
 		{Name: "dyj IPP", Enabled: true, Direction: "in", Protocol: "tcp", LocalPort: "6600-6700", Program: "Any"},
 		{Name: "dyj mDNS", Enabled: true, Direction: "in", Protocol: "udp", LocalPort: "Any"},
 	}, nil)
-	c := findCheck(t, Run(Params{Port: 6631}), "firewall")
+	c := checkFirewallWindows(Params{Port: 6631})
 	if c.Level != LevelOK {
 		t.Errorf("range/any-program rules should cover, got %+v", c)
 	}
@@ -160,7 +162,7 @@ func TestFirewallProbeDisabledRuleDoesNotCover(t *testing.T) {
 		{Name: "dyj IPP", Enabled: false, Direction: "in", Protocol: "tcp", LocalPort: "6631"},
 		{Name: "dyj mDNS", Enabled: true, Direction: "in", Protocol: "udp", LocalPort: "5353"},
 	}, nil)
-	c := findCheck(t, Run(Params{Port: 6631}), "firewall")
+	c := checkFirewallWindows(Params{Port: 6631})
 	if c.Level != LevelWarn || !c.CanFix {
 		t.Errorf("disabled rule must not count as covered, got %+v", c)
 	}
@@ -168,7 +170,7 @@ func TestFirewallProbeDisabledRuleDoesNotCover(t *testing.T) {
 
 func TestFirewallProbeErrorStaysAdvisory(t *testing.T) {
 	withFakeRules(t, nil, errors.New("no powershell"))
-	c := findCheck(t, Run(Params{Port: 6631}), "firewall")
+	c := checkFirewallWindows(Params{Port: 6631})
 	if c.Level != LevelInfo || c.CanFix {
 		t.Errorf("unprobeable firewall must stay info without can_fix, got %+v", c)
 	}
@@ -179,7 +181,7 @@ func TestFirewallTLSPortNeedsOwnRule(t *testing.T) {
 		{Name: "dyj IPP", Enabled: true, Direction: "in", Protocol: "tcp", LocalPort: "6631"},
 		{Name: "dyj mDNS", Enabled: true, Direction: "in", Protocol: "udp", LocalPort: "5353"},
 	}, nil)
-	c := findCheck(t, Run(Params{Port: 6631, TLSPort: 6632}), "firewall")
+	c := checkFirewallWindows(Params{Port: 6631, TLSPort: 6632})
 	if c.Level != LevelWarn || !strings.Contains(c.Detail, "6632") {
 		t.Errorf("TLS port without its own rule should warn mentioning it, got %+v", c)
 	}
