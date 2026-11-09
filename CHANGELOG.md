@@ -3,7 +3,7 @@
 All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/); versioning: semver.
 
-## [Unreleased]
+## [0.5.0] — 2026-11-09
 
 ### Added
 - **开放打印模式**（[ADR-0014](docs/adr/0014-open-printing-mode.md)）：管理页
