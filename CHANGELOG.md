@@ -3,6 +3,14 @@
 All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/); versioning: semver.
 
+## [0.7.1] — 2026-11-14
+
+### Fixed
+- **Win7 旧版通道 CI 编译修复**：`alias_test.go` 用了 `t.Context()`
+  （Go 1.24+ API），旧版通道 go1.20.14 工具链不识别，导致 v0.7.0 发布
+  流水线 build-legacy 失败、安装包未能发布。改用 `context.Background()`，
+  测试行为不变。
+
 ## [0.7.0] — 2026-11-14
 
 ### Fixed

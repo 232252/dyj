@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net"
@@ -75,7 +76,7 @@ func TestStartIPPAliasServesDataPlaneOnly(t *testing.T) {
 		t.Fatalf("alias did not serve the handler: body=%q", body)
 	}
 
-	if err := srv.Shutdown(t.Context()); err != nil {
+	if err := srv.Shutdown(context.Background()); err != nil {
 		t.Fatalf("shutdown: %v", err)
 	}
 	// After shutdown the alias must be gone: connections are refused.
