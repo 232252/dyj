@@ -4,8 +4,18 @@
 #
 # Hardening: dyj binds only high ports (6631/5353 — no
 # CAP_NET_BIND_SERVICE needed) and writes only its StateDirectory, so
-# it runs under a DynamicUser with an empty capability bounding set.
-# Custom -spool/-out paths need a drop-in ReadWritePaths= override.
+# it runs under a dedicated system user with an empty capability
+# bounding set. Custom -spool/-out paths need a drop-in
+# ReadWritePaths= override.
+#
+# avahi coexistence (ADR-0016): when avahi owns port 5353, dyj publishes
+# through it over the system D-Bus. Two requirements:
+#   - A STATIC user (not DynamicUser): dbus authenticates peers by UID
+#     via SO_PEERCRED and resets connections from transient DynamicUser
+#     UIDs ("connection reset by peer"). The dyj user is created by the
+#     package postinstall.
+#   - BindReadOnlyPaths=/run/dbus: ProtectSystem=strict hides /run.
+# Without avahi, dyj falls back to its own mDNS responder.
 
 [Unit]
 Description=dyj LAN printer sharing (IPP Everywhere + mDNS)
@@ -18,10 +28,12 @@ Type=exec
 ExecStart=/usr/bin/dyj service run
 Restart=on-failure
 RestartSec=5
-DynamicUser=yes
+User=dyj
+Group=dyj
 StateDirectory=dyj
 NoNewPrivileges=yes
 ProtectSystem=strict
+BindReadOnlyPaths=/run/dbus
 ProtectHome=yes
 PrivateTmp=yes
 PrivateDevices=yes

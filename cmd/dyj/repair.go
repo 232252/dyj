@@ -132,7 +132,7 @@ func repairStateDir(rc repairCtx) repairOutcome {
 // rule table (a full doctorParams run would spend 3s on the mDNS browse
 // this decision does not need).
 func firewallCheckNow(rc repairCtx) doctor.Check {
-	for _, c := range doctor.Run(doctor.Params{Port: rc.cfg.Port, TLSPort: rc.cfg.TLSPort, StateDir: rc.stateDir}) {
+	for _, c := range doctor.Run(doctor.Params{Port: rc.cfg.Port, TLSPort: rc.cfg.TLSPort, StateDir: rc.stateDir, IPPAlias: sharesRole(rc.cfg.Role)}) {
 		if c.Name == "firewall" {
 			return c
 		}

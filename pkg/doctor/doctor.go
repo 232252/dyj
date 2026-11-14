@@ -46,6 +46,11 @@ type Params struct {
 	// MDNSInstances names the _ipp._tcp instances this node advertises;
 	// non-empty adds the egress self-test (browse and find ourselves).
 	MDNSInstances []string
+
+	// IPPAlias marks the well-known-port alias active (ADR-0017): OS
+	// "add printer by IP" flows assume 631, so the firewall must allow
+	// it alongside the primary port.
+	IPPAlias bool
 }
 
 // Levels.
@@ -268,6 +273,9 @@ func checkFirewallWindows(p Params) Check {
 	if p.TLSPort > 0 && !ruleCovers(rules, "dyj IPPS", "tcp", p.TLSPort, exe) {
 		missing = append(missing, fmt.Sprintf("TCP %d", p.TLSPort))
 	}
+	if p.IPPAlias && p.Port != 631 && !ruleCovers(rules, "dyj IPP Alias", "tcp", 631, exe) {
+		missing = append(missing, "TCP 631")
+	}
 	if !ruleCovers(rules, "dyj mDNS", "udp", 5353, exe) {
 		missing = append(missing, "UDP 5353")
 	}
@@ -332,6 +340,9 @@ func firewallFixCmd(p Params) string {
 	}
 	if p.TLSPort > 0 {
 		cmds = append(cmds, fmt.Sprintf(`netsh advfirewall firewall add rule name="dyj IPPS" dir=in action=allow program="%s" protocol=TCP localport=%d profile=domain,private,public`, exe, p.TLSPort))
+	}
+	if p.IPPAlias && p.Port != 631 {
+		cmds = append(cmds, fmt.Sprintf(`netsh advfirewall firewall add rule name="dyj IPP Alias" dir=in action=allow program="%s" protocol=TCP localport=631 profile=domain,private,public`, exe))
 	}
 	cmds = append(cmds, fmt.Sprintf(`netsh advfirewall firewall add rule name="dyj mDNS" dir=in action=allow program="%s" protocol=UDP localport=5353 profile=domain,private,public`, exe))
 	return strings.Join(cmds, " && ")

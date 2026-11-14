@@ -49,20 +49,29 @@ func List() ([]Printer, error) {
 	var needed, returned uint32
 	flags := uintptr(printerEnumLocal | printerEnumConnections)
 	var buf []byte
+	ok := false
 	for attempt := 0; attempt < 3; attempt++ {
-		_, _, _ = procEnumPrintersW.Call(
+		r1, _, callErr := procEnumPrintersW.Call(
 			flags, 0, 2,
 			0, 0,
 			uintptr(unsafe.Pointer(&needed)), uintptr(unsafe.Pointer(&returned)))
 		if needed == 0 {
+			// No buffer needed: either the API succeeded with zero queues
+			// (spooler running, nothing installed) or it failed outright
+			// (spooler stopped / access denied). The old code returned an
+			// empty list for both, and the wizard showed "no printers".
+			if r1 == 0 {
+				return nil, fmt.Errorf("EnumPrintersW: %w", callErr)
+			}
 			return nil, nil
 		}
 		buf = make([]byte, needed)
-		r1, _, callErr := procEnumPrintersW.Call(
+		r1, _, callErr = procEnumPrintersW.Call(
 			flags, 0, 2,
 			uintptr(unsafe.Pointer(&buf[0])), uintptr(needed),
 			uintptr(unsafe.Pointer(&needed)), uintptr(unsafe.Pointer(&returned)))
 		if r1 != 0 {
+			ok = true
 			break
 		}
 		if attempt == 2 {
@@ -70,8 +79,13 @@ func List() ([]Printer, error) {
 		}
 		// Another queue appeared mid-call; retry with the new size.
 	}
+	if !ok || returned == 0 {
+		return nil, nil
+	}
 	def := defaultPrinterName()
-	infos := (*[256]printerInfo2W)(unsafe.Pointer(&buf[0]))[:returned:returned]
+	// Slice by the API's own count, not a fixed array bound: a machine
+	// with more than 256 queues must not panic the wizard.
+	infos := unsafe.Slice((*printerInfo2W)(unsafe.Pointer(&buf[0])), int(returned))
 	out := make([]Printer, 0, returned)
 	for i := range infos {
 		p := Printer{

@@ -57,6 +57,23 @@ func TestFixFirewallTLSPortRule(t *testing.T) {
 	}
 }
 
+// 631 别名（ADR-0017）：修复防火墙时必须一并放行别名端口，且删除旧规则
+// 时同样按程序路径清理，避免残留。
+func TestFixFirewallAddsAliasRule(t *testing.T) {
+	calls := stubRunNetsh(t, func(argv []string) (string, error) { return "Ok.", nil })
+	rc := repairCtx{cfg: serveOptions{Role: roleShare, Port: 6631}}
+	if err := fixFirewall(rc); err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(*calls, "\n")
+	if !strings.Contains(joined, "name=dyj IPP Alias") || !strings.Contains(joined, "localport=631") {
+		t.Errorf("alias firewall rule missing:\n%s", joined)
+	}
+	if !strings.Contains(joined, "delete rule name=dyj IPP Alias") {
+		t.Errorf("alias rule must be deleted before re-add:\n%s", joined)
+	}
+}
+
 func TestFixFirewallElevationFallback(t *testing.T) {
 	stubRunNetsh(t, func(argv []string) (string, error) {
 		return "请求的操作需要提升 (以管理员身份运行)。", errors.New("exit status 1")

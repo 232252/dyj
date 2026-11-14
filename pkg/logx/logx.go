@@ -243,6 +243,29 @@ func RedactPath(s string) string {
 }
 
 // ---------------------------------------------------------------------------
+// Fan-out sink
+// ---------------------------------------------------------------------------
+
+// Fanout returns a writer that copies every write to ALL writers, even
+// when some fail. io.MultiWriter aborts on the first error — measured in
+// the field (2026-11-14): a service whose stderr sink failed produced an
+// empty log ring AND a stale log file, because the very first sink error
+// silenced every later one. Observability must not take down sharing, and
+// one broken sink must not silence the healthy ones.
+func Fanout(writers ...io.Writer) io.Writer {
+	return &fanoutWriter{writers: writers}
+}
+
+type fanoutWriter struct{ writers []io.Writer }
+
+func (f *fanoutWriter) Write(p []byte) (int, error) {
+	for _, w := range f.writers {
+		_, _ = w.Write(p) // best-effort per sink; never abort the fan-out
+	}
+	return len(p), nil
+}
+
+// ---------------------------------------------------------------------------
 // Rotating file sink
 // ---------------------------------------------------------------------------
 

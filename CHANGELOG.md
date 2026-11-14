@@ -3,6 +3,80 @@
 All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/); versioning: semver.
 
+## [0.7.0] — 2026-11-14
+
+### Fixed
+- **平板"按 IP 添加"终于可用**（[ADR-0017](docs/adr/0017-ipp-alias-reinstated.md)）：
+  鸿蒙等系统打印对话框隐含 631 且无端口输入（research/17 §4 真机实证），
+  而服务只听 6631——开放打印免的是 401，救不了建连失败。恢复 631 IPP
+  别名监听（仅数据面，`aliasGuard` 挡住 /admin 与 /pair；被占自动跳过），
+  配置热更新同步镜像路由，停机一并关闭。防火墙自检/一键修复/安装器同步
+  放行 TCP 631（规则名 `dyj IPP Alias`）。
+- **服务日志不再整体静默**：`io.MultiWriter` 首个写入器出错即中断后续全部
+  写入——现场实测服务运行中日志环与文件双双为空。新增 `logx.Fanout`
+  容错多路写入：单个输出失败不影响其余输出（回归测试钉死）。
+- **升级不再丢配置**：安装器每次执行 `dyj service install`（无参数）此前
+  无条件覆盖 service.json——升级一次，共享清单与常开免认证全部被重置。
+  现在无显式参数且已有有效配置时保留原配置，只修复服务注册
+  （`SaveOptionsIfAbsent`，损坏配置仍可被引导修复）。
+
+### Added
+- **防呆护栏**：虚拟打印机（PDF/XPS 等）向导默认不勾选、列表加"虚拟"徽章，
+  全选虚拟一键共享前红色确认；关闭最后一台共享前确认（此前静默退回挑选态）；
+  免认证打印开/关均先确认；客户端配对码输入自动滤除非数字。
+- **平板/手机连接指引**：服务端主页常驻提示条（本机地址 + 免认证状态实时
+  刷新）；帮助页新增平板排障 FAQ（含 HarmonyOS 7.0 升级建议）；关于区显示
+  兼容端口。配对码点击即复制。
+- **界面美化**：渐变主色按钮/品牌图标、分层阴影与大圆角卡片、柔和背景光晕、
+  模态入场动效（尊重系统"减少动态效果"）、列表行悬浮反馈、统一焦点环。
+
+### Changed
+- 状态接口新增 `ipp_alias_port` 与每台打印机 `virtual` 标记（均可选字段，
+  旧客户端不受影响）。
+
+## [0.6.0] — 2026-11-13
+
+### Fixed
+- **启动端口竞态**（真机跨机测试发现，research/16）：`runNode` 先构建共享
+  （把端口烤进打印机 URI 与 mDNS 通告）、后绑定端口，首次启动端口=0 →
+  `discovery: invalid port 0`、URI 全是 `:0`、局域网发现不到。现把端口绑定
+  提前到 buildShare 之前；回归测试 `TestBootPrinterURIsHaveRealPort` 钉死。
+- **开放打印模式真正可用**（[ADR-0015](docs/adr/0015-discovery-hardening-and-open-txt.md)）：
+  此前门禁虽放行，但 mDNS TXT 恒为 `pair=1`，自家客户端仍强制弹配对码框，
+  免配对分支永远走不到。现在 `pair` 标记随开放状态实时生成（开放=`0`），
+  开关/到期/常开切换都会立即重宣告；窗口到期挂定时器回落 TXT。
+- **常开标志不再被配置保存清掉**：向导 PUT 不带 `open_print` 键时保留现值
+  （此前整体替换 cfg 会静默丢失常开）；前端开放操作后同步配置快照，双保险。
+- **打印机列表正确性**：Windows 枚举失败不再吞成空列表（区分「真无打印机」
+  与「Spooler 停用」）；纯中文名打印机第三台不再撞键（`printer`/`-2`/`-3`
+  唯一化），且配置保存继承既有共享键，已配对设备 URI 不断；扫描合并键改用
+  UUID 优先，两台电脑共享同名打印机不再被吞成一行。
+- **已装列表提速且不再闪空**：系统队列查询批量化（一次 Get-Printer 替代逐台
+  起 PowerShell），IPP 探测并行 + 10s 缓存，总预算 2.5s；刷新失败保留旧列表。
+
+### Added
+- **Linux avahi 共存**（[ADR-0016](docs/adr/0016-avahi-dbus-coexistence.md)）：
+  装有 avahi 的 Linux 服务端（CUPS 桌面发行版默认）此前 dyj 自管 mDNS 收不到
+  查询（SO_REUSEPORT 组播只投递给一个 socket，被 avahi 独占），自动发现失效。
+  现在检测到 avahi 时经其 D-Bus API 发布服务（EntryGroup/AddService/
+  UpdateServiceTxt），无 avahi 自动回退自管。开放模式 pair TXT 经 avahi 实时
+  翻转。打包单元改用静态 dyj 用户（DynamicUser 临时 UID 被 dbus 凭据校验拒绝）
+  并只读绑定 /run/dbus。godbus 提为直接依赖（原已随 systray 引入）。
+- **局域网发现极致加强**（[ADR-0015](docs/adr/0015-discovery-hardening-and-open-txt.md)）：
+  查询多轮退避重试 + 缺失记录定向补查；查询套接字加入组播组（收得到纯组播
+  应答的第三方设备）；结果校验并行化；修复冲突探测 `timeAfter(220)` 实为
+  220 纳秒的 bug；恢复 RFC 6762 §8.3 的 TTL/2 周期重宣告；放宽浏览接口筛选
+  （mesh/虚拟网卡可扫）；可达探测并行并返回真实 RTT；离线条目 90s TTL 治理；
+  扫描结果服务端缓存 10s + 单飞，客户端页可见态 20s 自动重扫。
+- **跨网段深度扫描**（research/15 P3 落地）：客户端页「深度扫描」按钮，按
+  各网卡 /24 + 可选 CIDR 逐个地址探测，6631 为主、显式网段补 631；TCP 快筛
+  后必须 IPP 确认（防 mesh 假握手）；后台任务 + 单飞，仅手动触发。
+- 服务端主页每 30s 重拉本机打印机列表，新插/新装打印机不用切页即出现。
+
+### Notes
+- IPv6 发现本期不做（现链路全 IPv4，双栈涉三平台 socket/zone 语义，稳定优先）。
+- 全部新代码 go1.20 可编译（Win7 legacy 通道）；IPP wire 未动，黄金字节测试原样护航。
+
 ## [0.5.0] — 2026-11-09
 
 ### Added

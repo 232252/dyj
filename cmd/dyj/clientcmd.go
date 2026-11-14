@@ -97,7 +97,7 @@ func browseOnce(timeout time.Duration, ifaces string) ([]discovery.Found, error)
 	if timeout <= 0 {
 		timeout = 5 * time.Second
 	}
-	ifs, err := discovery.SelectInterfaces(splitList(ifaces))
+	ifs, err := discovery.SelectBrowseInterfaces(splitList(ifaces))
 	if err != nil {
 		return nil, err
 	}

@@ -35,13 +35,24 @@ func cmdService(args []string) error {
 		if err != nil {
 			return err
 		}
-		if err := service.SaveOptions(raw); err != nil {
+		// No explicit flags = installer/upgrade path: keep the user's
+		// existing configuration (printers, always-on open printing).
+		// Only a first install (or a corrupt file) gets the defaults.
+		if len(rest) == 0 {
+			kept, kerr := service.SaveOptionsIfAbsent(raw)
+			if kerr != nil {
+				return kerr
+			}
+			if kept {
+				raw, _ = service.LoadOptions()
+			}
+		} else if err := service.SaveOptions(raw); err != nil {
 			return err
 		}
 		if err := service.Install(); err != nil {
 			return err
 		}
-		fmt.Printf("dyj: service installed (role %q, options: %s)\n", o.Role, raw)
+		fmt.Printf("dyj: service installed (options: %s)\n", raw)
 		return nil
 	case "uninstall":
 		return service.Uninstall()

@@ -3,7 +3,8 @@
 // 列表常驻下方。列表副标只说人话（dyj 共享 / 普通网络打印机），不暴露
 // host:port；已安装每行带实时状态（就绪/服务端不在线/已移除/配对被撤销）。
 import {
-  scanServices, pairWith, installQueue, removeQueue, testQueue,
+  scanServices, probeServer, deepScanStart, deepScanStatus,
+  pairWith, installQueue, removeQueue, testQueue,
   getAddedPrinters, getConfig, saveConfig, errMessage, esc,
 } from '../api.js';
 import { t } from '../i18n/index.js';
@@ -17,6 +18,8 @@ class DyjPageClient extends HTMLElement {
   #scanTimer = 0;
   #flow = null;              // null | {stage, picked, paired, results}
   #addedTimer = 0;
+  #autoScanTimer = 0;
+  #deepTimer = 0;
 
   connectedCallback() {
     this.innerHTML = `
@@ -41,6 +44,9 @@ class DyjPageClient extends HTMLElement {
   dyj-page-client .manual input { flex: 1 1 180px; padding: 9px 12px; border: 1px solid var(--dyj-border);
     border-radius: var(--dyj-radius); background: none; color: inherit; font: inherit; }
   dyj-page-client .manual input:focus { outline: none; border-color: var(--dyj-primary); }
+  dyj-page-client #deepCidr { flex: 1 1 220px; padding: 9px 12px; border: 1px solid var(--dyj-border);
+    border-radius: var(--dyj-radius); background: none; color: inherit; font: inherit; }
+  dyj-page-client #deepCidr:focus { outline: none; border-color: var(--dyj-primary); }
   dyj-page-client .manual input#mpin { flex: 0 1 140px; }
   dyj-page-client .okline { margin: 6px 0; }
   dyj-page-client .badline { margin: 6px 0; color: var(--dyj-danger); }
@@ -65,11 +71,18 @@ class DyjPageClient extends HTMLElement {
     this.#scan();
     this.#loadAdded();
     this.#addedTimer = setInterval(() => { if (!document.hidden) this.#loadAdded(); }, 15000);
+    // 可见态每 20s 静默重扫（服务端缓存 10s，不会造成组播风暴）：
+    // 新上线的打印机不用手动点重扫就出现。
+    this.#autoScanTimer = setInterval(() => {
+      if (!document.hidden && !this.#flow) this.#scan({ silent: true });
+    }, 20000);
   }
 
   disconnectedCallback() {
     clearTimeout(this.#scanTimer);
     clearInterval(this.#addedTimer);
+    clearInterval(this.#autoScanTimer);
+    clearInterval(this.#deepTimer);
   }
 
   #showFlow(on) {
@@ -82,26 +95,68 @@ class DyjPageClient extends HTMLElement {
   // 扫描失败/空结果的共同落地页：提示 + 重扫 + 按地址添加入口。
   #scanFallback(body, msgHtml) {
     body.innerHTML = `${msgHtml}
-      <div class="nav"><dyj-button id="rescan">${t('client_rescan')}</dyj-button></div>`;
+      <div class="nav">
+        <dyj-button id="rescan">${t('client_rescan')}</dyj-button>
+        <dyj-button id="deep" variant="secondary">${t('client_deep_scan')}</dyj-button>
+      </div>
+      <p class="sub">${t('client_deep_hint')}</p>
+      <div class="nav"><input id="deepCidr" class="addr" placeholder="${t('client_deep_cidr_placeholder')}"></div>`;
     body.querySelector('#rescan').addEventListener('click', () => {
       this.#services = null;
-      this.#scan();
+      this.#scan({ refresh: true });
+    });
+    body.querySelector('#deep').addEventListener('click', () => {
+      this.#deepScan(body.querySelector('#deepCidr').value.trim());
     });
     this.#renderManual(body);
   }
 
-  async #scan() {
+  // 深度扫描（research/15 P3）：启动后台逐个地址探测，2s 轮询，结果并入
+  // 列表。仅手动触发——跨网段扫描流量大，不该随每次扫描自动跑。
+  async #deepScan(cidr) {
+    const body = this.querySelector('#scanBody');
+    body.innerHTML = `<div class="spin">${t('client_deep_running')}</div>`;
+    try {
+      await deepScanStart(cidr ? { cidr } : {});
+    } catch (e) {
+      this.#scanFallback(body, `<div class="empty">${esc(errMessage(e))}</div>`);
+      return;
+    }
+    clearInterval(this.#deepTimer);
+    this.#deepTimer = setInterval(async () => {
+      let st;
+      try { st = await deepScanStatus(); } catch { return; }
+      if (st.running || !st.done) return;
+      clearInterval(this.#deepTimer);
+      const found = st.entries || [];
+      // 并入现有列表（按 host:port 去重），保留 mDNS 已发现的行。
+      const have = new Set((this.#services || []).map((s) => `${s.host}:${s.port}`));
+      for (const e of found) {
+        if (!have.has(`${e.host}:${e.port}`)) {
+          this.#services = [...(this.#services || []), e];
+          have.add(`${e.host}:${e.port}`);
+        }
+      }
+      if (st.error) showToast(st.error, 'error');
+      else if (found.length) showToast(t('client_deep_found', { n: found.length }));
+      else showToast(t('client_deep_none'), 'error');
+      this.#renderScan();
+    }, 2000);
+  }
+
+  async #scan({ silent = false, refresh = false } = {}) {
     if (this.#flow) return;
     const body = this.querySelector('#scanBody');
-    body.innerHTML = `<div class="spin">${t('client_scanning')}</div>`;
+    if (!silent) body.innerHTML = `<div class="spin">${t('client_scanning')}</div>`;
     try {
-      const { services } = await scanServices();
+      const { services } = await scanServices(refresh);
       this.#services = services || [];
       if (!this.#flow) this.#renderScan();
     } catch (e) {
+      // 静默重扫失败保留旧列表；首次扫描失败也不能把「按地址添加」藏掉：
+      // mesh/VPN 上组播本来就会失败，地址框是唯一入口。
+      if (silent && this.#services && this.#services.length) return;
       this.#services = [];
-      // 扫描失败也不能把「按地址添加」藏掉：mesh/VPN 上组播本来就会失败，
-      // 地址框是唯一入口。
       if (!this.#flow) this.#scanFallback(body, `<div class="empty">${esc(errMessage(e))}</div>`);
     }
   }
@@ -118,7 +173,14 @@ class DyjPageClient extends HTMLElement {
     body.innerHTML = `
       <p class="sub">${t('client_pick_hint')}</p>
       <div class="list" id="list"></div>
-      <div class="nav"><dyj-button id="rescan">${t('client_rescan')}</dyj-button></div>`;
+      <div class="nav">
+        <dyj-button id="rescan">${t('client_rescan')}</dyj-button>
+        <dyj-button id="deep" variant="secondary">${t('client_deep_scan')}</dyj-button>
+        <input id="deepCidr" class="addr" placeholder="${t('client_deep_cidr_placeholder')}">
+      </div>`;
+    body.querySelector('#deep').addEventListener('click', () => {
+      this.#deepScan(body.querySelector('#deepCidr').value.trim());
+    });
     const list = body.querySelector('#list');
     list.replaceChildren(...rows.map((s) => {
       const row = document.createElement('button');
@@ -143,7 +205,7 @@ class DyjPageClient extends HTMLElement {
     }));
     body.querySelector('#rescan').addEventListener('click', () => {
       this.#services = null;
-      this.#scan();
+      this.#scan({ refresh: true });
     });
     this.#renderManual(body);
   }
@@ -167,6 +229,12 @@ class DyjPageClient extends HTMLElement {
     body.append(box);
     const addr = box.querySelector('#maddr');
     const pin = box.querySelector('#mpin');
+    // 防呆：配对码只收数字（粘贴带空格/字母时自动滤掉）；地址去首尾空白。
+    pin.addEventListener('input', () => {
+      const digits = pin.value.replace(/\D/g, '').slice(0, 4);
+      if (pin.value !== digits) pin.value = digits;
+    });
+    addr.addEventListener('blur', () => { addr.value = addr.value.trim(); });
     const submit = () => {
       const msg = box.querySelector('#mmsg');
       const parsed = parseAddress(addr.value);
@@ -244,8 +312,20 @@ class DyjPageClient extends HTMLElement {
       pinEl.focusFirst();
       return;
     }
-    // 免配对（dyj 开放共享 / 普通网络打印机）：直接安装。
+    // 免配对（dyj 开放共享 / 普通网络打印机）：先探一次再装。TXT 可能
+    // 陈旧（开放窗口刚到期），裸 IPP 被 401 拒绝时回落配对码流程，
+    // 避免装出一个打不了的队列。探测失败不阻塞安装。
     const path = s.path || '/ipp/print';
+    if (s.dyj) {
+      body.innerHTML = `<div class="spin">${t('client_installing', { name: s.name || s.instance })}</div>`;
+      try {
+        const pr = await probeServer({ host: s.host, port: s.port, path });
+        if (pr && pr.status === 401) {
+          this.#begin({ ...s, need_pin: true });
+          return;
+        }
+      } catch { /* 探测失败不阻塞安装 */ }
+    }
     this.#flow.paired = {
       server_name: s.name || s.instance,
       printers: [{
@@ -361,7 +441,13 @@ class DyjPageClient extends HTMLElement {
         row.append(rm);
         return row;
       }));
-    } catch { box.innerHTML = `<div class="empty">${t('client_added_empty')}</div>`; }
+    } catch (e) {
+      // 刷新失败保留旧列表：一次网络/服务抖动不该把已装打印机「变没」。
+      if (!box.children.length) {
+        box.innerHTML = `<div class="empty">${t('client_added_empty')}</div>`;
+      }
+      showToast(errMessage(e), 'error');
+    }
   }
 }
 

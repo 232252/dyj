@@ -114,7 +114,7 @@ func normalizeServeOptions(o serveOptions) serveOptions {
 		}}
 		o.Printer, o.Backend = "", ""
 	}
-	seen := map[string]int{}
+	used := map[string]bool{}
 	for i := range o.Printers {
 		p := &o.Printers[i]
 		if p.Name == "" {
@@ -126,15 +126,22 @@ func normalizeServeOptions(o serveOptions) serveOptions {
 		if p.Key == "" {
 			p.Key = localprint.Slug(p.Name)
 		}
-		// De-dup keys: second "epson" becomes "epson-2".
-		if n, dup := seen[p.Key]; dup {
-			p.Key = fmt.Sprintf("%s-%d", p.Key, n)
-			seen[p.Key] = n + 1
-		} else {
-			seen[p.Key] = 2
-		}
+		p.Key = uniqueKey(p.Key, used)
 	}
 	return o
+}
+
+// uniqueKey keeps every share key distinct: "epson", "epson-2", "epson-3"…
+// The old counter scheme reused "epson-2" for the third same-slug printer
+// (pure-CJK names all fold to "printer"), and the router keeps the FIRST
+// entry per key — the third printer silently routed to the second.
+func uniqueKey(key string, used map[string]bool) string {
+	candidate := key
+	for n := 2; used[candidate]; n++ {
+		candidate = fmt.Sprintf("%s-%d", key, n)
+	}
+	used[candidate] = true
+	return candidate
 }
 
 func cmdServe(args []string) error {

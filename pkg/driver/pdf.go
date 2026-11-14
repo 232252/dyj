@@ -48,9 +48,36 @@ func rasterizer() string {
 	rasterizerOnce.Do(func() {
 		if p, err := exec.LookPath("pdftoppm"); err == nil {
 			rasterizerPath = p
+			return
 		}
+		rasterizerPath = probePDFWellKnown()
 	})
 	return rasterizerPath
+}
+
+// probePDFWellKnown checks install locations that are frequently absent
+// from a Windows service's PATH (scoop is per-user; the LocalSystem
+// service never sees it). The dyj state dir is users-modify by installer
+// design, so an unelevated user can drop poppler there for the service.
+func probePDFWellKnown() string {
+	var dirs []string
+	if pd := os.Getenv("ProgramData"); pd != "" {
+		dirs = append(dirs,
+			filepath.Join(pd, "dyj", "poppler"),
+			filepath.Join(pd, "dyj", "poppler", "bin"),
+			filepath.Join(pd, "poppler", "bin"),
+			filepath.Join(pd, "chocolatey", "bin"))
+	}
+	if up := os.Getenv("USERPROFILE"); up != "" {
+		dirs = append(dirs, filepath.Join(up, "scoop", "shims"))
+	}
+	for _, d := range dirs {
+		p := filepath.Join(d, "pdftoppm.exe")
+		if st, err := os.Stat(p); err == nil && !st.IsDir() {
+			return p
+		}
+	}
+	return ""
 }
 
 // PDFAvailable reports whether this machine can render application/pdf.

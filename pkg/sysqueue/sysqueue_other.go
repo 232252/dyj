@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/232252/dyj/pkg/driver/cups"
@@ -79,6 +80,26 @@ func Exists(name string) (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+// Names reports which of the given queue names exist, reading the CUPS
+// queue set once. Returns a lowercase name set.
+func Names(names []string) (map[string]bool, error) {
+	set := make(map[string]bool, len(names))
+	qs, err := cups.Queues()
+	if err != nil {
+		return nil, err
+	}
+	live := make(map[string]bool, len(qs))
+	for _, q := range qs {
+		live[strings.ToLower(q.Name)] = true
+	}
+	for _, n := range names {
+		if live[strings.ToLower(n)] {
+			set[strings.ToLower(n)] = true
+		}
+	}
+	return set, nil
 }
 
 // Remove runs lpadmin -x.

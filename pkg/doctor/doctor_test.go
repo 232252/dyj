@@ -176,6 +176,36 @@ func TestFirewallProbeErrorStaysAdvisory(t *testing.T) {
 	}
 }
 
+// 631 别名（ADR-0017）：系统"按 IP 添加打印机"隐含 631，别名启用时
+// 防火墙必须同样放行，否则平板照样连不上。
+func TestFirewallAliasPortNeedsOwnRule(t *testing.T) {
+	withFakeExe(t, `C:\x\dyj.exe`)
+	withFakeRules(t, []firewallRule{
+		{Name: "dyj IPP", Enabled: true, Direction: "in", Protocol: "tcp", LocalPort: "6631", Program: `C:\x\dyj.exe`},
+		{Name: "dyj mDNS", Enabled: true, Direction: "in", Protocol: "udp", LocalPort: "5353", Program: `C:\x\dyj.exe`},
+	}, nil)
+	c := checkFirewallWindows(Params{Port: 6631, IPPAlias: true})
+	if c.Level != LevelWarn || !strings.Contains(c.Detail, "631") {
+		t.Errorf("alias without its own rule should warn mentioning 631, got %+v", c)
+	}
+	if !strings.Contains(c.Fix, "localport=631") {
+		t.Errorf("fix command must add the 631 rule, got %q", c.Fix)
+	}
+}
+
+func TestFirewallAliasPortCoveredGradesOK(t *testing.T) {
+	withFakeExe(t, `C:\x\dyj.exe`)
+	withFakeRules(t, []firewallRule{
+		{Name: "dyj IPP", Enabled: true, Direction: "in", Protocol: "tcp", LocalPort: "6631", Program: `C:\x\dyj.exe`},
+		{Name: "dyj IPP Alias", Enabled: true, Direction: "in", Protocol: "tcp", LocalPort: "631", Program: `C:\x\dyj.exe`},
+		{Name: "dyj mDNS", Enabled: true, Direction: "in", Protocol: "udp", LocalPort: "5353", Program: `C:\x\dyj.exe`},
+	}, nil)
+	c := checkFirewallWindows(Params{Port: 6631, IPPAlias: true})
+	if c.Level != LevelOK {
+		t.Errorf("alias rule present should grade ok, got %+v", c)
+	}
+}
+
 func TestFirewallTLSPortNeedsOwnRule(t *testing.T) {
 	withFakeRules(t, []firewallRule{
 		{Name: "dyj IPP", Enabled: true, Direction: "in", Protocol: "tcp", LocalPort: "6631"},

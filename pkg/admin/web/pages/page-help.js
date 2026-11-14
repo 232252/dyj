@@ -33,6 +33,7 @@ class DyjPageHelp extends HTMLElement {
   <div class="qa"><b>${t('help_faq_scan_q')}</b><p>${t('help_faq_scan_a')}</p></div>
   <div class="qa"><b>${t('help_faq_pin_q')}</b><p>${t('help_faq_pin_a')}</p></div>
   <div class="qa"><b>${t('help_faq_print_q')}</b><p>${t('help_faq_print_a')}</p></div>
+  <div class="qa"><b>${t('help_faq_tablet_q')}</b><p>${t('help_faq_tablet_a')}</p></div>
 </section>
 
 <section class="card">
@@ -171,6 +172,7 @@ class DyjPageHelp extends HTMLElement {
     try {
       const s = await getStatus();
       if (s?.version) parts.push(t('about_version', { v: s.version }));
+      if (s?.ipp_alias_port) parts.push(t('about_alias', { p: s.ipp_alias_port }));
     } catch { /* 状态不可得就少一行 */ }
     try {
       const { config } = await getConfig();

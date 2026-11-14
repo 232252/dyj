@@ -46,6 +46,26 @@ func TestNormalizeDedupKeys(t *testing.T) {
 	}
 }
 
+// TestNormalizeDedupKeysThreeCJK pins the third-printer collision: pure
+// CJK names all fold to "printer", and the old counter scheme handed the
+// third one "printer-2" again — the router keeps the first entry per key,
+// so it silently printed to the second printer.
+func TestNormalizeDedupKeysThreeCJK(t *testing.T) {
+	o := normalizeServeOptions(serveOptions{
+		Printers: []printerSpec{
+			{Name: "办公室打印机"},
+			{Name: "会议室打印机"},
+			{Name: "前台打印机"},
+		},
+	})
+	want := []string{"printer", "printer-2", "printer-3"}
+	for i, w := range want {
+		if o.Printers[i].Key != w {
+			t.Fatalf("printer %d key = %q, want %q (all: %+v)", i, o.Printers[i].Key, w, o.Printers)
+		}
+	}
+}
+
 func TestNormalizeRoleValidation(t *testing.T) {
 	if normalizeServeOptions(serveOptions{Role: "bogus"}).Role != "" {
 		t.Fatal("bogus role must fold to bootstrap")

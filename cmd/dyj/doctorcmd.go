@@ -137,6 +137,7 @@ func doctorParams(o serveOptions, stateDir string, inProc bool) doctor.Params {
 		MDNS:     !o.NoMDNS,
 		StateDir: stateDir,
 		InProc:   inProc,
+		IPPAlias: sharesRole(o.Role),
 	}
 	if len(o.Printers) > 0 {
 		spec := o.Printers[0]

@@ -75,7 +75,12 @@ export const getDiagnostics = () => request('diagnostics');
 
 // ---- v0.3: role wizard / pairing / receiver APIs ----
 export const getLocalPrinters = () => request('local-printers');
-export const scanServices = () => request('scan');
+export const scanServices = (refresh = false) => request('scan' + (refresh ? '?refresh=1' : ''));
+// probeServer：免配对安装前探一次共享端（TXT 可能陈旧），401 → 回落配对码。
+export const probeServer = (body) => request('probe', { method: 'POST', body });
+// 深度扫描（research/15 P3）：POST 启动后台任务，GET 轮询结果。
+export const deepScanStart = (body) => request('deep-scan', { method: 'POST', body });
+export const deepScanStatus = () => request('deep-scan');
 export const pairWith = (body) => request('pair', { method: 'POST', body });
 export const installQueue = (body) => request('queue/install', { method: 'POST', body });
 export const removeQueue = (body) => request('queue/remove', { method: 'POST', body });

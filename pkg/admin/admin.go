@@ -57,6 +57,7 @@ type Status struct {
 	Backend     string   `json:"backend"`
 	Port        int      `json:"port"`
 	TLSPort     int      `json:"tls_port,omitempty"`
+	IPPAliasPort int     `json:"ipp_alias_port,omitempty"` // ADR-0017: 0 = alias not listening
 	MDNS        bool     `json:"mdns"`
 	AdminURL    string   `json:"admin_url"`
 	Formats     []string `json:"formats,omitempty"`
@@ -80,6 +81,9 @@ type PrinterStatus struct {
 	Backend   string `json:"backend"`
 	Accepting bool   `json:"accepting"`
 	Queued    int32  `json:"queued"`
+	// Virtual marks document writers (PDF/XPS/…): they never put ink on
+	// paper, so the UI warns instead of letting users "share" them blind.
+	Virtual bool `json:"virtual,omitempty"`
 }
 
 // Options configures the admin handler.

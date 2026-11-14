@@ -52,6 +52,7 @@ Name: "desktopicon"; Description: "创建桌面快捷方式（dyj 设置）"; Gr
 [Run]
 ; --- firewall: program-scoped rules on every profile, before anything listens
 Filename: "netsh"; Parameters: "advfirewall firewall add rule name=""dyj IPP"" dir=in action=allow program=""{app}\dyj.exe"" protocol=TCP localport=6631 profile=domain,private,public"; Flags: runhidden
+Filename: "netsh"; Parameters: "advfirewall firewall add rule name=""dyj IPP Alias"" dir=in action=allow program=""{app}\dyj.exe"" protocol=TCP localport=631 profile=domain,private,public"; Flags: runhidden
 Filename: "netsh"; Parameters: "advfirewall firewall add rule name=""dyj mDNS"" dir=in action=allow program=""{app}\dyj.exe"" protocol=UDP localport=5353 profile=domain,private,public"; Flags: runhidden
 ; --- tray autostart for every user (HKLM Run) — opt-out checkbox below
 Filename: "reg"; Parameters: "add HKLM\Software\Microsoft\Windows\CurrentVersion\Run /v dyj-tray /t REG_SZ /d ""\""{app}\dyj-tray.exe\"""" /f"; Flags: runhidden; Check: WantAutostart
@@ -66,6 +67,7 @@ Filename: "taskkill"; Parameters: "/IM dyj-tray.exe /F"; Flags: runhidden; RunOn
 Filename: "{app}\dyj.exe"; Parameters: "service stop"; Flags: runhidden; RunOnceId: "StopSvc"
 Filename: "{app}\dyj.exe"; Parameters: "service uninstall"; Flags: runhidden; RunOnceId: "DelSvc"
 Filename: "netsh"; Parameters: "advfirewall firewall delete rule name=""dyj IPP"""; Flags: runhidden; RunOnceId: "DelRuleIPP"
+Filename: "netsh"; Parameters: "advfirewall firewall delete rule name=""dyj IPP Alias"""; Flags: runhidden; RunOnceId: "DelRuleIPPAlias"
 Filename: "netsh"; Parameters: "advfirewall firewall delete rule name=""dyj mDNS"""; Flags: runhidden; RunOnceId: "DelRuleMDNS"
 Filename: "reg"; Parameters: "delete HKLM\Software\Microsoft\Windows\CurrentVersion\Run /v dyj-tray /f"; Flags: runhidden; RunOnceId: "DelRun"
 

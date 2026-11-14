@@ -85,7 +85,7 @@ func firewallNetshCmds(verb string, rc repairCtx) [][]string {
 	}
 	var cmds [][]string
 	if verb == "delete" {
-		for _, name := range []string{"dyj IPP", "dyj IPPS", "dyj mDNS"} {
+		for _, name := range []string{"dyj IPP", "dyj IPPS", "dyj IPP Alias", "dyj mDNS"} {
 			cmds = append(cmds, []string{"netsh", "advfirewall", "firewall", "delete", "rule",
 				"name=" + name, "program=" + exe})
 		}
@@ -102,6 +102,9 @@ func firewallNetshCmds(verb string, rc repairCtx) [][]string {
 	}
 	if rc.cfg.TLSPort > 0 {
 		add("dyj IPPS", "TCP", rc.cfg.TLSPort)
+	}
+	if sharesRole(rc.cfg.Role) && rc.cfg.Port != 631 {
+		add("dyj IPP Alias", "TCP", 631)
 	}
 	add("dyj mDNS", "UDP", 5353)
 	return cmds
@@ -124,8 +127,9 @@ func needsElevation(out string) bool {
 // (same contract shape as sysqueue's helperResult — the elevated child
 // has no usable stdin/stdout pipes).
 type fwSpec struct {
-	Port    int `json:"port"`
-	TLSPort int `json:"tls_port"`
+	Port    int    `json:"port"`
+	TLSPort int    `json:"tls_port"`
+	Role    string `json:"role,omitempty"`
 }
 
 type fwResult struct {
@@ -145,7 +149,7 @@ func fixFirewallElevated(rc repairCtx) error {
 	resPath := filepath.Join(dir, fmt.Sprintf("dyj-fw-res-%d.json", stamp))
 	defer os.Remove(specPath)
 	defer os.Remove(resPath)
-	spec, err := json.Marshal(fwSpec{Port: rc.cfg.Port, TLSPort: rc.cfg.TLSPort})
+	spec, err := json.Marshal(fwSpec{Port: rc.cfg.Port, TLSPort: rc.cfg.TLSPort, Role: rc.cfg.Role})
 	if err != nil {
 		return err
 	}
@@ -194,7 +198,7 @@ func runFirewallHelper(specPath, resPath string) error {
 	if err := json.Unmarshal(data, &spec); err != nil {
 		return write(fwResult{Error: "spec invalid: " + err.Error()})
 	}
-	rc := repairCtx{cfg: serveOptions{Port: spec.Port, TLSPort: spec.TLSPort}}
+	rc := repairCtx{cfg: serveOptions{Port: spec.Port, TLSPort: spec.TLSPort, Role: spec.Role}}
 	var out bytes.Buffer
 	for _, argv := range firewallNetshCmds("delete", rc) {
 		if o, _ := runNetsh(argv); o != "" {

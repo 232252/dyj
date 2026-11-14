@@ -22,11 +22,20 @@ class DyjModal extends HTMLElement {
     this.attachShadow({ mode: 'open' }).innerHTML = `
 <style>
   :host { position: fixed; inset: 0; z-index: 900; }
-  .backdrop { position: absolute; inset: 0; background: rgb(0 0 0 / 40%);
-    display: flex; align-items: center; justify-content: center; }
+  .backdrop { position: absolute; inset: 0; background: rgb(10 14 25 / 45%);
+    backdrop-filter: blur(3px);
+    display: flex; align-items: center; justify-content: center;
+    animation: dyj-fade .15s ease-out; }
   .box { position: relative; background: var(--dyj-card); color: var(--dyj-text);
-    border-radius: var(--dyj-radius); box-shadow: 0 8px 30px rgb(0 0 0 / 25%);
-    width: min(92vw, 440px); padding: 20px; }
+    border: 1px solid var(--dyj-border);
+    border-radius: var(--dyj-radius-l, 16px); box-shadow: 0 16px 48px rgb(0 0 0 / 30%);
+    width: min(92vw, 440px); padding: 22px;
+    animation: dyj-pop .15s ease-out; }
+  @keyframes dyj-fade { from { opacity: 0; } }
+  @keyframes dyj-pop { from { opacity: 0; transform: translateY(8px) scale(.98); } }
+  @media (prefers-reduced-motion: reduce) {
+    .backdrop, .box { animation: none; }
+  }
   h2 { margin: 0 0 8px; font-size: var(--dyj-fs-l); }
   p { margin: 0 0 16px; color: var(--dyj-text-dim); font-size: var(--dyj-fs-m); line-height: 1.6; }
   p[hidden] { display: none; }

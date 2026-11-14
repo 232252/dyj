@@ -69,6 +69,27 @@ func SaveOptions(raw string) error {
 	return os.WriteFile(filepath.Join(dir, optionsFile), []byte(raw), 0o644)
 }
 
+// SaveOptionsIfAbsent persists raw only when no VALID configuration
+// exists yet. The installer runs `dyj service install` with no flags on
+// every (re)install; unconditionally saving the bootstrap defaults there
+// wiped the user's configured printers and always-on open printing on
+// upgrade (field report 2026-11-14). Returns kept=true when the existing
+// file was preserved. A corrupt file is replaced — the wizard must be
+// able to repair it.
+func SaveOptionsIfAbsent(raw string) (kept bool, err error) {
+	dir, err := stateDirFunc()
+	if err != nil {
+		return false, err
+	}
+	if data, rerr := os.ReadFile(filepath.Join(dir, optionsFile)); rerr == nil {
+		var v map[string]any
+		if json.Unmarshal(data, &v) == nil && v != nil {
+			return true, nil // existing valid config wins
+		}
+	}
+	return false, SaveOptions(raw)
+}
+
 // LoadOptions reads the persisted serve options JSON.
 func LoadOptions() (string, error) {
 	dir, err := stateDirFunc()

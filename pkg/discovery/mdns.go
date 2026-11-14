@@ -87,6 +87,13 @@ type Advertiser struct {
 	host     string
 	closed   bool
 	ttl      uint32
+	// txt is the live TXT content, guarded by mu so SetTXT can swap it
+	// while answer goroutines read it (cfg itself stays immutable).
+	txt []string
+	// stopCh is closed by Close to end the periodic re-announcement loop.
+	stopCh chan struct{}
+	// reannounceEvery overrides the TTL/2 refresh interval (tests).
+	reannounceEvery time.Duration
 
 	respCount uint64
 }
@@ -129,7 +136,7 @@ func New(cfg Config) (*Advertiser, error) {
 	if len(cfg.TXT) == 0 {
 		cfg.TXT = BuildTXT(TXTParams{Port: cfg.Port, Path: cfg.Path})
 	}
-	return &Advertiser{cfg: cfg, instance: cfg.Instance, host: cfg.HostName, ttl: cfg.TTL}, nil
+	return &Advertiser{cfg: cfg, instance: cfg.Instance, host: cfg.HostName, ttl: cfg.TTL, txt: cfg.TXT}, nil
 }
 
 // Instance reports the instance name actually in use (may differ from the
@@ -154,6 +161,41 @@ func (a *Advertiser) Responses() uint64 {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.respCount
+}
+
+// SetTXT replaces the live TXT content and immediately re-announces the
+// service so peers refresh their caches (the TXT record carries the
+// cache-flush bit, RFC 6762 §10.2). It is a no-op after Close and when the
+// content is unchanged. Used to flip the pair= mark when open printing
+// starts/stops (ADR-0014/0015) without rebuilding the whole advertiser.
+func (a *Advertiser) SetTXT(txt []string) {
+	a.mu.Lock()
+	if a.closed || sameTXT(a.txt, txt) {
+		a.mu.Unlock()
+		return
+	}
+	a.txt = append([]string(nil), txt...)
+	a.mu.Unlock()
+	a.announce()
+}
+
+// TXT returns a copy of the live TXT content.
+func (a *Advertiser) TXT() []string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return append([]string(nil), a.txt...)
+}
+
+func sameTXT(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // Start binds the multicast sockets, announces the service and begins
@@ -199,13 +241,45 @@ func (a *Advertiser) Start() error {
 	a.mu.Lock()
 	a.conns = conns
 	a.closed = false
+	a.stopCh = make(chan struct{})
+	stopCh := a.stopCh
+	every := a.reannounceEvery
 	a.mu.Unlock()
 
 	for _, c := range conns {
 		go a.serve(c)
 	}
 	a.announce()
+	// RFC 6762 §8.3: re-announce at TTL/2 so peer caches never expire a
+	// live service. The old code announced exactly once — a browser that
+	// missed that single packet (or joined later) never saw the printer.
+	if every <= 0 {
+		every = time.Duration(a.ttl) * time.Second / 2
+	}
+	go a.reannounceLoop(stopCh, every)
 	return nil
+}
+
+// reannounceLoop refreshes the announcement until Close. It re-checks the
+// closed flag before sending so a Close racing the tick never puts a
+// packet on the wire after the goodbye.
+func (a *Advertiser) reannounceLoop(stop <-chan struct{}, every time.Duration) {
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-t.C:
+			a.mu.Lock()
+			closed := a.closed
+			a.mu.Unlock()
+			if closed {
+				return
+			}
+			a.announce()
+		}
+	}
 }
 
 // Close sends goodbye packets (TTL=0) and stops the listeners. Without this,
@@ -217,6 +291,10 @@ func (a *Advertiser) Close() error {
 		return nil
 	}
 	a.closed = true
+	if a.stopCh != nil {
+		close(a.stopCh)
+		a.stopCh = nil
+	}
 	conns := a.conns
 	a.conns = nil
 	a.mu.Unlock()
@@ -337,7 +415,7 @@ func (a *Advertiser) instanceRecords(c *ifaceConn, instance string) []dns.RR {
 			Port:     uint16(a.cfg.Port),
 			Target:   a.hostFor(c),
 		},
-		&dns.TXT{Hdr: hdr(instance, dns.TypeTXT, a.ttl, true), Txt: a.cfg.TXT},
+		&dns.TXT{Hdr: hdr(instance, dns.TypeTXT, a.ttl, true), Txt: a.TXT()},
 	}
 	return append(out, a.hostRecords(c, dns.TypeANY)...)
 }
@@ -464,7 +542,7 @@ func (a *Advertiser) allRecords() []dns.RR {
 			Target: hostName,
 		})
 	}
-	out = append(out, &dns.TXT{Hdr: hdr(instance, dns.TypeTXT, a.ttl, true), Txt: a.cfg.TXT})
+	out = append(out, &dns.TXT{Hdr: hdr(instance, dns.TypeTXT, a.ttl, true), Txt: a.TXT()})
 	for _, hostName := range ordered {
 		for _, ip := range a.cfg.IPs {
 			if ip4 := ip.To4(); ip4 != nil {
@@ -552,8 +630,11 @@ func (a *Advertiser) probeName(conns []*ifaceConn) (string, bool) {
 	q.SetQuestion(strings.ToLower(instance), dns.TypeANY)
 	q.RecursionDesired = false
 
-	// Random delay, RFC 6762 §8.1 says 0-250ms.
-	deadline := timeAfter(220)
+	// Random delay, RFC 6762 §8.1 says 0-250ms. (This was timeAfter(220)
+	// — 220 NANOSECONDS, since timeAfter takes a Duration — so the probe
+	// timed out before any peer could answer and conflicts were never
+	// detected.)
+	deadline := timeAfter(220 * time.Millisecond)
 
 	for _, c := range conns {
 		a.sendMsg(c, q, nil)
@@ -634,6 +715,81 @@ func MulticastCapableInterfaces() ([]*net.Interface, error) {
 		}
 		return strings.Compare(a.Name, b.Name)
 	})
+	return out, nil
+}
+
+// BrowseInterfaces returns every up, non-loopback interface with an IPv4
+// address — WITHOUT requiring the multicast flag. Mesh/VPN adapters
+// (Tailscale-style tunnels, research/15) often lack it yet carry a perfectly
+// usable unicast path to the peer; excluding them made whole networks
+// invisible. The LAN-first ordering still applies, so docker bridges and
+// APIPA adapters sort last. Announcement keeps the stricter
+// MulticastCapableInterfaces: sending multicast out of a non-multicast
+// interface is pointless, querying is not.
+func BrowseInterfaces() ([]*net.Interface, error) {
+	all, err := net.Interfaces()
+	if err != nil {
+		return nil, err
+	}
+	var out []*net.Interface
+	for i := range all {
+		ifi := all[i]
+		if ifi.Flags&net.FlagUp == 0 || ifi.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		if primaryIPv4(&ifi) == nil {
+			continue
+		}
+		out = append(out, &ifi)
+	}
+	slices.SortStableFunc(out, func(a, b *net.Interface) int {
+		if ai, aj := scoreIface(a), scoreIface(b); ai != aj {
+			return cmp.Compare(ai, aj)
+		}
+		return strings.Compare(a.Name, b.Name)
+	})
+	return out, nil
+}
+
+// SelectBrowseInterfaces is SelectInterfaces over the wider browse set.
+func SelectBrowseInterfaces(names []string) ([]*net.Interface, error) {
+	all, err := BrowseInterfaces()
+	if err != nil {
+		return nil, err
+	}
+	if len(names) == 0 {
+		return all, nil
+	}
+	byName := map[string]*net.Interface{}
+	for _, ifi := range all {
+		byName[strings.ToLower(ifi.Name)] = ifi
+	}
+	var out []*net.Interface
+	var missing []string
+	for _, n := range names {
+		n = strings.TrimSpace(n)
+		if n == "" {
+			continue
+		}
+		if ifi, ok := byName[strings.ToLower(n)]; ok {
+			out = append(out, ifi)
+			continue
+		}
+		found := false
+		for _, ifi := range all {
+			if ip := primaryIPv4(ifi); ip != nil && ip.String() == n {
+				out = append(out, ifi)
+				found = true
+				break
+			}
+		}
+		if !found {
+			missing = append(missing, n)
+		}
+	}
+	if len(missing) > 0 {
+		return out, fmt.Errorf("discovery: no interface matches %s", strings.Join(missing, ", "))
+	}
 	return out, nil
 }
 

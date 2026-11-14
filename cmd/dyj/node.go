@@ -15,6 +15,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -22,6 +23,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -34,6 +36,7 @@ import (
 	"github.com/232252/dyj/pkg/doctor"
 	"github.com/232252/dyj/pkg/driver"
 	"github.com/232252/dyj/pkg/ipp"
+	"github.com/232252/dyj/pkg/localprint"
 	"github.com/232252/dyj/pkg/logx"
 	"github.com/232252/dyj/pkg/pairing"
 	"github.com/232252/dyj/pkg/service"
@@ -72,16 +75,22 @@ type node struct {
 	pair  *pairing.Store
 	added *addedStore
 	share []*sharedPrinter
-	adv   []*discovery.Advertiser
+	adv   []discovery.Publisher
 
-	swap    *swapHandler
-	httpSrv *http.Server
+	swap     *swapHandler
+	ippOnly  *swapHandler // data-plane-only mirror of swap (631 alias, ADR-0017)
+	httpSrv  *http.Server
+	aliasSrv *http.Server // best-effort :631 IPP alias (startIPPAlias)
 
 	// Open printing window (ADR-0014): runtime-only, lazily expired on
-	// read — no timer goroutine, mirroring the PIN TTL pattern. The
-	// always-on choice lives in cfg.OpenPrint (persisted); applyConfig
-	// replaces cfg wholesale and must NOT touch the window.
+	// read — the lazy check stays the single source of truth. openTimer
+	// additionally re-announces the mDNS TXT at expiry so peers stop
+	// seeing pair=0 promptly (ADR-0015); it never decides access itself.
+	// The always-on choice lives in cfg.OpenPrint (persisted); applyConfig
+	// preserves it when an incoming PUT omits the key and never touches
+	// the window.
 	openUntil time.Time
+	openTimer *time.Timer
 	nowFn     func() time.Time // nil → time.Now; tests inject a fake clock
 
 	ifaces []*net.Interface
@@ -123,7 +132,7 @@ func runNode(ctx context.Context, raw serveOptions, mode runMode) error {
 	if rotErr == nil {
 		sinks = append(sinks, rot)
 	}
-	lg := logx.New(io.MultiWriter(sinks...), logx.ParseLevel(o.Verbose))
+	lg := logx.New(logx.Fanout(sinks...), logx.ParseLevel(o.Verbose))
 	legacy := lg.Legacy()
 	defer func() {
 		if rot != nil {
@@ -155,6 +164,7 @@ func runNode(ctx context.Context, raw serveOptions, mode runMode) error {
 		ifaces:   ifaces,
 		ips:      ips,
 		swap:     &swapHandler{},
+		ippOnly:  &swapHandler{},
 	}
 
 	pairStore, err := pairing.Open(filepath.Join(stateDir, "paired-devices.json"), pairing.Limits{}, lg)
@@ -169,6 +179,29 @@ func runNode(ctx context.Context, raw serveOptions, mode runMode) error {
 	}()
 	n.added = openAddedStore(filepath.Join(stateDir, "added-printers.json"))
 
+	// ---- bind the IPP port FIRST ----
+	// buildShare bakes n.actualPort into every printer URI and into the
+	// mDNS advertisement; binding after it left both at port 0 on first
+	// boot ("discovery: invalid port 0", printers undiscoverable). Probe
+	// upward so the node ALWAYS comes up.
+	ln, port, lerr := listenUpward(o.Port)
+	if lerr != nil {
+		return fmt.Errorf("listen :%d..: no free port: %w", o.Port, lerr)
+	}
+	if port != o.Port {
+		lg.Warn("boot.listen", "cfg_port", o.Port, "using", port, "note", "配置端口被占用")
+	}
+	n.actualPort = port
+	lg.Info("boot.listen", "port", port, "role", o.Role)
+
+	// Well-known-port alias (ADR-0017): OS "add printer by IP" dialogs
+	// (HarmonyOS IP添加, research/17 §4) assume port 631 and offer no port
+	// field. Serve the IPP data plane there too when the port is free —
+	// busy/privileged is a skip, never an error; mDNS keeps the primary.
+	if sharesRole(o.Role) {
+		n.aliasSrv = startIPPAlias(port, ippAliasPort, aliasGuard(n.ippOnly), lg)
+	}
+
 	// ---- share stack (may end up empty — bootstrap) ----
 	if sharesRole(o.Role) {
 		if err := n.buildShare(); err != nil {
@@ -178,11 +211,13 @@ func runNode(ctx context.Context, raw serveOptions, mode runMode) error {
 	}
 
 	// ---- gate: loopback full access, LAN needs a paired token ----
-	n.swap.Store(ipp.NewRouter(ipp.RouterOptions{
+	router := ipp.NewRouter(ipp.RouterOptions{
 		Entries: n.routerEntries(),
 		Gate:    n.gate(),
 		Logger:  legacy,
-	}))
+	})
+	n.swap.Store(router)
+	n.ippOnly.Store(router)
 
 	// ---- admin UI + APIs ----
 	token, err := admin.LoadOrCreateToken(filepath.Join(stateDir, "admin-token"))
@@ -214,17 +249,6 @@ func runNode(ctx context.Context, raw serveOptions, mode runMode) error {
 		MaxHeaderBytes:    1 << 16,
 		IdleTimeout:       120 * time.Second,
 	}
-
-	// ---- listeners (probe upward so the node ALWAYS comes up) ----
-	ln, port, lerr := listenUpward(o.Port)
-	if lerr != nil {
-		return fmt.Errorf("listen :%d..: no free port: %w", o.Port, lerr)
-	}
-	if port != o.Port {
-		lg.Warn("boot.listen", "cfg_port", o.Port, "using", port, "note", "配置端口被占用")
-	}
-	n.actualPort = port
-	lg.Info("boot.listen", "port", port, "role", o.Role)
 
 	errCh := make(chan error, 4)
 	go func() { errCh <- n.httpSrv.Serve(ln) }()
@@ -276,6 +300,11 @@ func runNode(ctx context.Context, raw serveOptions, mode runMode) error {
 	shutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	n.closeSpools(shutCtx)
+	if n.aliasSrv != nil {
+		if err := n.aliasSrv.Shutdown(shutCtx); err != nil {
+			lg.Warn("stop.alias", "err", err)
+		}
+	}
 	return n.httpSrv.Shutdown(shutCtx)
 }
 
@@ -380,7 +409,7 @@ func (n *node) startMDNS(hostName string) {
 		if sp.spec.Key != "" {
 			path += "/" + sp.spec.Key
 		}
-		adv, err := discovery.New(discovery.Config{
+		adv, viaAvahi, err := discovery.NewPublisher(discovery.Config{
 			Instance: sp.spec.Name,
 			HostName: fqdn,
 			Port:     n.actualPort,
@@ -398,7 +427,7 @@ func (n *node) startMDNS(hostName string) {
 				Color:    sp.profile.ColorSupported,
 				Extra: map[string]string{
 					"dyj":    "1",
-					"pair":   "1",
+					"pair":   n.pairTXTValue(),
 					"dyjver": "3",
 				},
 			}),
@@ -414,7 +443,11 @@ func (n *node) startMDNS(hostName string) {
 		n.mu.Lock()
 		n.adv = append(n.adv, adv)
 		n.mu.Unlock()
-		n.log.Info("mdns.announce", "printer", sp.spec.Key, "instance", adv.Instance(), "ifaces", len(n.ifaces))
+		via := "self"
+		if viaAvahi {
+			via = "avahi"
+		}
+		n.log.Info("mdns.announce", "printer", sp.spec.Key, "instance", adv.Instance(), "via", via, "ifaces", len(n.ifaces))
 	}
 }
 
@@ -425,6 +458,38 @@ func (n *node) stopMDNS() {
 	n.mu.Unlock()
 	for _, adv := range advs {
 		adv.Close() // goodbye packets included
+	}
+}
+
+// pairTXTValue is the discovery-side pairing mark (ADR-0015): "0" while
+// open printing is active so receivers offer the tokenless install path,
+// "1" otherwise. Read under n.mu — openStateLocked requires it.
+func (n *node) pairTXTValue() string {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.openStateLocked().enabled {
+		return "0"
+	}
+	return "1"
+}
+
+// syncOpenTXT refreshes the pair= mark on every live advertiser and
+// re-announces it. Called whenever the open state changes (window start /
+// expiry / always-on flip / close) so a peer's cached TXT never lags the
+// data-plane gate by more than one announcement.
+func (n *node) syncOpenTXT() {
+	val := n.pairTXTValue()
+	n.mu.Lock()
+	advs := append([]discovery.Publisher(nil), n.adv...)
+	n.mu.Unlock()
+	for _, adv := range advs {
+		txt := adv.TXT()
+		for i, s := range txt {
+			if strings.HasPrefix(s, "pair=") {
+				txt[i] = "pair=" + val
+			}
+		}
+		adv.SetTXT(txt)
 	}
 }
 
@@ -494,12 +559,25 @@ func (n *node) adminStatus() admin.Status {
 		OpenPrintAlways: open.always,
 		OpenRemainSec:   open.remainSec,
 	}
+	if n.aliasSrv != nil {
+		st.IPPAliasPort = ippAliasPort
+	}
+	// Virtual markers come from the live local enumeration (name/driver/
+	// port table). Enumeration failure degrades silently — the status API
+	// must never break because the spooler hiccups.
+	virtuals := map[string]bool{}
+	if lps, err := localprint.List(); err == nil {
+		for _, lp := range lps {
+			virtuals[lp.Name] = lp.Virtual
+		}
+	}
 	first := true
 	for _, sp := range n.shareSlice() {
 		accepting, queued, _ := sp.spool.Status()
 		st.Printers = append(st.Printers, admin.PrinterStatus{
 			Key: sp.spec.Key, Name: sp.spec.Name,
 			Backend: sp.backend.Name(), Accepting: accepting, Queued: queued,
+			Virtual: virtuals[sp.spec.Queue],
 		})
 		st.URIs = append(st.URIs, sp.profile.URIs...)
 		if first {
@@ -537,6 +615,37 @@ func (n *node) applyConfig(raw []byte) error {
 	if err != nil {
 		return err
 	}
+	// The wizard's PUT bodies are built from a config snapshot taken at
+	// page load; an open-printing flip that happened since then is absent
+	// from the body. omitempty cannot tell "absent" from "false", so probe
+	// the raw JSON: a missing open_print key keeps the live value. Turning
+	// always-on off has its own channel (DELETE /api/open), so this can
+	// never lock the flag on.
+	var probe map[string]json.RawMessage
+	if json.Unmarshal(raw, &probe) == nil {
+		if _, ok := probe["open_print"]; !ok {
+			n.mu.Lock()
+			next.OpenPrint = n.cfg.OpenPrint
+			n.mu.Unlock()
+		}
+	}
+	// The wizard PUTs printers as {name, queue} without keys. Inherit the
+	// persisted key of an unchanged printer so paired device URIs
+	// (/p/<token>/ipp/print/<key>) survive every save; only genuinely new
+	// printers get a fresh slug (normalizeServeOptions already assigned
+	// one, keep it when the match carries no key).
+	n.mu.Lock()
+	prevPrinters := append([]printerSpec(nil), n.cfg.Printers...)
+	n.mu.Unlock()
+	for i := range next.Printers {
+		p := &next.Printers[i]
+		for _, old := range prevPrinters {
+			if old.Key != "" && p.Queue == old.Queue && p.Name == old.Name {
+				p.Key = old.Key
+				break
+			}
+		}
+	}
 	persisted, err := marshalOptions(next)
 	if err != nil {
 		return err
@@ -552,11 +661,16 @@ func (n *node) applyConfig(raw []byte) error {
 	if err := n.buildShare(); err != nil {
 		n.log.Error("cfg.rebuild", "err", err)
 	}
-	n.swap.Store(ipp.NewRouter(ipp.RouterOptions{
+	router := ipp.NewRouter(ipp.RouterOptions{
 		Entries: n.routerEntries(),
 		Gate:    n.gate(),
 		Logger:  n.legacy,
-	}))
+	})
+	n.swap.Store(router)
+	if n.ippOnly == nil { // defensive: nodes built outside runNode (tests)
+		n.ippOnly = &swapHandler{}
+	}
+	n.ippOnly.Store(router) // 631 alias mirrors the live data plane (ADR-0017)
 	n.log.Info("cfg.save", "role", next.Role, "printers", len(next.Printers))
 	return nil
 }
@@ -573,6 +687,54 @@ func listenUpward(port int) (net.Listener, int, error) {
 		}
 	}
 	return nil, port, err
+}
+
+// ippAliasPort is the well-known IPP port. dyj's primary port is 6631+
+// (631 may be taken by a real CUPS), but OS "add printer by IP" flows
+// hard-code 631: the HarmonyOS IP添加 dialog has 名称/IP/驱动/协议 fields
+// and no port (research/17 §4), and the Windows IPP class driver behaves
+// the same. Serving the data plane on 631 too, when free, lets those
+// flows work with zero configuration (ADR-0017).
+const ippAliasPort = 631
+
+// aliasGuard keeps the 631 listener strictly data-plane: only IPP paths
+// (/ipp/… and the paired /p/<token>/… form) reach the router. The router
+// itself is permissive — unknown paths fall back to the default printer —
+// so without this guard /admin/api/status would answer on 631 too.
+func aliasGuard(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p := r.URL.Path
+		if strings.HasPrefix(p, "/ipp/") || strings.HasPrefix(p, "/p/") {
+			next.ServeHTTP(w, r)
+			return
+		}
+		http.NotFound(w, r)
+	})
+}
+
+// startIPPAlias best-effort binds aliasPort and serves the IPP router on
+// it — data plane only, no /admin and no /pair. A busy or unbindable port
+// (a real CUPS, Linux <1024 without root) is a skip, never an error: the
+// alias is a convenience for IP-add flows; the primary port stays the
+// contract (mDNS SRV keeps pointing at it).
+func startIPPAlias(primaryPort, aliasPort int, h http.Handler, lg *logx.Logger) *http.Server {
+	if primaryPort == aliasPort {
+		return nil // already serving on the well-known port
+	}
+	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", aliasPort))
+	if err != nil {
+		lg.Info("boot.alias", "port", aliasPort, "note", "skip (busy or privileged)", "err", err)
+		return nil
+	}
+	srv := &http.Server{
+		Handler:           h,
+		ReadHeaderTimeout: 10 * time.Second,
+		MaxHeaderBytes:    1 << 16,
+		IdleTimeout:       120 * time.Second,
+	}
+	go func() { _ = srv.Serve(ln) }() // best-effort; Shutdown is the only stop
+	lg.Info("boot.alias", "port", aliasPort, "note", "IPP data plane also on the well-known port")
+	return srv
 }
 
 // gate rebuilds the data-plane gate: loopback, then the open-printing
@@ -650,7 +812,15 @@ func (n *node) openRemainSec() int {
 func (n *node) openSetWindow(d time.Duration) {
 	n.mu.Lock()
 	n.openUntil = n.now().Add(d)
+	if n.openTimer != nil {
+		n.openTimer.Stop()
+	}
+	// The timer only refreshes the mDNS TXT at expiry; access decisions
+	// stay with the lazy openStateLocked check (fake clocks in tests
+	// never fire real timers, and that is fine — the gate is unaffected).
+	n.openTimer = time.AfterFunc(d, n.syncOpenTXT)
 	n.mu.Unlock()
+	n.syncOpenTXT()
 }
 
 // openSetAlways flips the persisted always-on flag. Persistence errors are
@@ -668,6 +838,7 @@ func (n *node) openSetAlways(on bool) {
 	if err := persistOptions(raw); err != nil {
 		n.log.Warn("open.print_always", "err", err, "note", "本进程已生效；持久化由服务上下文完成")
 	}
+	n.syncOpenTXT()
 }
 
 // openDisable clears both the window and the always-on flag, persisting
@@ -675,6 +846,10 @@ func (n *node) openSetAlways(on bool) {
 func (n *node) openDisable() {
 	n.mu.Lock()
 	n.openUntil = time.Time{}
+	if n.openTimer != nil {
+		n.openTimer.Stop()
+		n.openTimer = nil
+	}
 	changed := n.cfg.OpenPrint
 	n.cfg.OpenPrint = false
 	var raw string
@@ -687,6 +862,7 @@ func (n *node) openDisable() {
 			n.log.Warn("open.print_close", "err", err, "note", "本进程已生效；持久化由服务上下文完成")
 		}
 	}
+	n.syncOpenTXT()
 }
 
 // nodeSpool aggregates the per-printer spoolers into the admin control

@@ -123,12 +123,16 @@ func Browse(ifaces []*net.Interface, timeout time.Duration) ([]Found, error) {
 	}
 	if len(ifaces) == 0 {
 		var err error
-		ifaces, err = MulticastCapableInterfaces()
+		ifaces, err = BrowseInterfaces()
 		if err != nil {
 			return nil, err
 		}
 	}
-	per := timeout / 2
+	// Each path gets the full budget: the raw path spends it on query
+	// rounds + collection, the reference client on its own window. The
+	// old timeout/2 split left ~1.5s for everything and dropped peers
+	// that answered a hair late.
+	per := timeout
 	if per < 700*time.Millisecond {
 		per = 700 * time.Millisecond
 	}
@@ -159,9 +163,20 @@ func Browse(ifaces []*net.Interface, timeout time.Duration) ([]Found, error) {
 	wg.Wait()
 
 	merged := mergeFound(append(raw, refSeen...))
+	// Verify in parallel: each resolve can burn the full window on a
+	// silent host, and a serial loop multiplied that by the printer count.
+	var vwg sync.WaitGroup
+	sem := make(chan struct{}, 4)
 	for i := range merged {
-		merged[i].verify(ifaces, per)
+		vwg.Add(1)
+		go func(f *Found) {
+			defer vwg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			f.verify(ifaces, per)
+		}(&merged[i])
 	}
+	vwg.Wait()
 	if len(merged) == 0 {
 		return nil, rawErr
 	}
@@ -214,7 +229,7 @@ func mergeFound(in []Found) []Found {
 		if f.Port == 0 || f.Host == "" {
 			continue
 		}
-		key := fmt.Sprintf("%s|%s|%d", f.Instance, f.Host, f.Port)
+		key := mergeKey(f)
 		if cur, ok := byKey[key]; ok {
 			cur.Addrs = appendUnique(cur.Addrs, f.Addrs...)
 			cur.Records = appendUnique(cur.Records, f.Records...)
@@ -238,6 +253,36 @@ func mergeFound(in []Found) []Found {
 	}
 	slices.SortStableFunc(out, func(a, b Found) int { return cmp.Compare(a.Instance, b.Instance) })
 	return out
+}
+
+// mergeKey is the dedup identity of one discovered service (ADR-0015):
+// the TXT UUID when present (stable across interfaces and renames; two
+// machines sharing same-named printers carry different UUIDs), else the
+// instance label + host-base + port. The host base strips the "-<iface>"
+// suffix the ${IFACE} naming adds per interface, so one physical printer
+// merges into one entry while same-named printers on different hosts stay
+// distinct.
+func mergeKey(f Found) string {
+	label := strings.ToLower(strings.TrimSuffix(f.Instance, "."))
+	if uuid := strings.ToLower(f.TXTMap["UUID"]); uuid != "" {
+		return "uuid:" + uuid + "|" + fmt.Sprint(f.Port)
+	}
+	return label + "|" + hostBase(f.Host) + "|" + fmt.Sprint(f.Port)
+}
+
+// hostBase normalizes an mDNS host name for comparison: trailing dot and
+// ".local" removed, per-interface "-<iface>" suffix stripped. IP literals
+// pass through unchanged.
+func hostBase(host string) string {
+	h := strings.ToLower(strings.TrimSuffix(host, "."))
+	h = strings.TrimSuffix(h, ".local")
+	if net.ParseIP(h) != nil {
+		return h
+	}
+	if i := strings.LastIndex(h, "-"); i > 0 {
+		h = h[:i]
+	}
+	return h
 }
 
 func appendUnique(dst []string, vals ...string) []string {
@@ -276,10 +321,12 @@ func browseRaw(ifaces []*net.Interface, timeout time.Duration) ([]Found, error) 
 		}
 	}
 
-	send(IPPSubService+".local.", dns.TypePTR)
-	send(IPPService+".local.", dns.TypePTR)
-	send(IPPService+".local.", dns.TypeANY)
-	send(BrowseService, dns.TypePTR)
+	queryAll := func() {
+		send(IPPSubService+".local.", dns.TypePTR)
+		send(IPPService+".local.", dns.TypePTR)
+		send(IPPService+".local.", dns.TypeANY)
+		send(BrowseService, dns.TypePTR)
+	}
 
 	st := newZoneState()
 	var mu sync.Mutex
@@ -310,33 +357,70 @@ func browseRaw(ifaces []*net.Interface, timeout time.Duration) ([]Found, error) 
 			}
 		}(c)
 	}
+
+	// Query rounds with backoff (RFC 6762 §5.2 spirit): one multicast
+	// packet lost used to mean the printer was invisible for the whole
+	// scan. 0 / 400ms / 1.2s covers both the cold-cache and the
+	// late-responder cases without flooding the link.
+	queryAll()
+	for _, delay := range []time.Duration{400 * time.Millisecond, 800 * time.Millisecond} {
+		if !sleepUntil(deadline, delay) {
+			break
+		}
+		queryAll()
+	}
 	wg.Wait()
 
-	// PTRs without SRV/TXT: ask point-blank for the instance records.
-	if len(st.ptr) > 0 && len(st.srv) == 0 {
-		for inst := range st.ptr {
+	// Instances whose SRV or TXT never arrived: ask point-blank for the
+	// instance records. The old trigger (len(srv)==0) missed the common
+	// partial-answer case where SOME instances resolved and one did not.
+	mu.Lock()
+	var incomplete []string
+	for inst := range st.ptr {
+		if st.srv[inst] == nil || st.txt[inst] == nil {
+			incomplete = append(incomplete, inst)
+		}
+	}
+	mu.Unlock()
+	if len(incomplete) > 0 {
+		for _, inst := range incomplete {
 			send(inst, dns.TypeANY)
 		}
 		sub := time.Now().Add(timeout / 2)
+		var swg sync.WaitGroup
 		for _, c := range conns {
-			buf := make([]byte, 9000)
-			for time.Now().Before(sub) {
-				_ = c.conn.SetReadDeadline(sub)
-				n, _, err := c.conn.ReadFromUDP(buf)
-				if err != nil {
-					break
+			swg.Add(1)
+			go func(c *ifaceConn) {
+				defer swg.Done()
+				buf := make([]byte, 9000)
+				for time.Now().Before(sub) {
+					_ = c.conn.SetReadDeadline(sub)
+					n, _, err := c.conn.ReadFromUDP(buf)
+					if err != nil {
+						return
+					}
+					var msg dns.Msg
+					if err := msg.Unpack(buf[:n]); err != nil || !msg.Response {
+						continue
+					}
+					mu.Lock()
+					st.addMsg(&msg)
+					mu.Unlock()
 				}
-				var msg dns.Msg
-				if err := msg.Unpack(buf[:n]); err != nil || !msg.Response {
-					continue
-				}
-				mu.Lock()
-				st.addMsg(&msg)
-				mu.Unlock()
-			}
+			}(c)
 		}
+		swg.Wait()
 	}
 	return st.found(), nil
+}
+
+// sleepUntil waits d, reporting false when the deadline would be crossed.
+func sleepUntil(deadline time.Time, d time.Duration) bool {
+	if time.Now().Add(d).After(deadline) {
+		return false
+	}
+	time.Sleep(d)
+	return true
 }
 
 func txtToMap(txt []string) map[string]string {
@@ -465,6 +549,12 @@ func ResolveName(ifaces []*net.Interface, name string, timeout time.Duration) (s
 // dialQuerySockets opens ephemeral-port UDP sockets that can send mDNS queries
 // out of specific interfaces. It deliberately does not bind 5353: a query-only
 // socket must not compete with the responder or with Chrome.
+//
+// The sockets DO join 224.0.0.251 on their interface: some responders
+// answer with multicast even when the query carried the QU bit, and
+// without membership those answers never reach this socket. Ephemeral
+// port + membership coexists with Chrome (research/06). A failed join is
+// logged-and-ignored: unicast (QU) answers still arrive.
 func dialQuerySockets(ifaces []*net.Interface) ([]*ifaceConn, error) {
 	var out []*ifaceConn
 	for _, ifi := range ifaces {
@@ -477,6 +567,9 @@ func dialQuerySockets(ifaces []*net.Interface) ([]*ifaceConn, error) {
 			continue
 		}
 		_ = conn.SetReadBuffer(1 << 20)
+		if err := joinQueryGroup(conn, ip); err != nil {
+			_ = err // membership is best-effort; QU unicast still works
+		}
 		out = append(out, &ifaceConn{ifi: ifi, conn: conn, ipv4: true, ip: ip})
 	}
 	if len(out) == 0 {

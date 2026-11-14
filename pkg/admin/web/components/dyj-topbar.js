@@ -22,13 +22,16 @@ class DyjTopbar extends HTMLElement {
     this.attachShadow({ mode: 'open' }).innerHTML = `
 <style>
   :host { display: block; background: var(--dyj-card);
-    border-bottom: 1px solid var(--dyj-border); }
+    border-bottom: 1px solid var(--dyj-border);
+    box-shadow: var(--dyj-shadow); }
   .bar { max-width: 980px; margin: 0 auto; display: flex; align-items: center;
     gap: 10px; padding: 12px 24px; }
-  .brand { display: flex; align-items: baseline; gap: 7px; }
-  .brand dyj-icon { width: 20px; height: 20px; color: var(--dyj-primary);
-    align-self: center; flex: none; }
-  .brand b { font-size: var(--dyj-fs-xl); }
+  .brand { display: flex; align-items: baseline; gap: 9px; }
+  .brand dyj-icon { width: 28px; height: 28px; color: var(--dyj-primary-contrast);
+    background: var(--dyj-primary-gradient, var(--dyj-primary));
+    border-radius: 8px; padding: 4px;
+    align-self: center; flex: none; box-shadow: var(--dyj-shadow); }
+  .brand b { font-size: var(--dyj-fs-xl); letter-spacing: -.01em; }
   .brand span { font-size: var(--dyj-fs-s); color: var(--dyj-text-dim); }
   .badge { padding: 0 8px; }
   .grow { flex: 1; }

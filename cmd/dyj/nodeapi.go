@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -36,6 +37,8 @@ func (n *node) extraAPIs() map[string]http.Handler {
 	return map[string]http.Handler{
 		"local-printers": http.HandlerFunc(n.apiLocalPrinters),
 		"scan":           http.HandlerFunc(n.apiScan),
+		"deep-scan":      http.HandlerFunc(n.apiDeepScan),
+		"probe":          http.HandlerFunc(n.apiProbe),
 		"pair":           http.HandlerFunc(n.apiPairProxy),
 		"queue/install":  http.HandlerFunc(n.apiQueueInstall),
 		"queue/remove":   http.HandlerFunc(n.apiQueueRemove),
@@ -250,6 +253,70 @@ func (n *node) apiScan(w http.ResponseWriter, r *http.Request) {
 	if !requireMethod(w, r, http.MethodGet) {
 		return
 	}
+	refresh := r.URL.Query().Get("refresh") == "1"
+	out := n.scanCached(refresh)
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(map[string]any{"services": out})
+}
+
+// scanResultCache is the node-wide scan cache: the UI polls every 20s and
+// several tabs may poll at once, but the wire work (multicast rounds +
+// known-node probes) runs at most once per 10s, single-flight.
+var scanResultCache struct {
+	mu      sync.Mutex
+	at      time.Time
+	entries []scanEntry
+	running bool
+	cond    *sync.Cond
+}
+
+// scanCached serves the cached scan when fresh; refresh=true (the manual
+// "rescan" button) always bypasses it. Concurrent callers wait for the
+// in-flight scan instead of starting a second one.
+func (n *node) scanCached(refresh bool) []scanEntry {
+	c := &scanResultCache
+	c.mu.Lock()
+	if c.cond == nil {
+		c.cond = sync.NewCond(&c.mu)
+	}
+	for {
+		if !refresh && c.entries != nil && time.Since(c.at) < 10*time.Second {
+			out := append([]scanEntry(nil), c.entries...)
+			c.mu.Unlock()
+			return out
+		}
+		if !c.running {
+			c.running = true
+			break
+		}
+		c.cond.Wait()
+	}
+	c.mu.Unlock()
+
+	out := n.scanNow()
+
+	c.mu.Lock()
+	c.at = time.Now()
+	c.entries = out
+	c.running = false
+	c.cond.Broadcast()
+	c.mu.Unlock()
+	return append([]scanEntry(nil), out...)
+}
+
+// lastSeen tracks when each service identity was last observed so a
+// printer that went away lingers briefly (flap tolerance) and then
+// disappears instead of haunting the list forever (ADR-0015).
+var lastSeen = struct {
+	mu sync.Mutex
+	m  map[string]time.Time
+}{m: map[string]time.Time{}}
+
+const offlineTTL = 90 * time.Second
+
+// scanNow performs one full scan: mDNS browse + known-node probes in
+// parallel, reachability with real RTT, then the offline prune.
+func (n *node) scanNow() []scanEntry {
 	var (
 		found     []discovery.Found
 		browseErr error
@@ -261,7 +328,7 @@ func (n *node) apiScan(w http.ResponseWriter, r *http.Request) {
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		ifaces, _ := discovery.SelectInterfaces(nil)
+		ifaces, _ := discovery.SelectBrowseInterfaces(nil)
 		found, browseErr = discovery.Browse(ifaces, 3*time.Second)
 	}()
 	go func() {
@@ -274,13 +341,205 @@ func (n *node) apiScan(w http.ResponseWriter, r *http.Request) {
 
 	out := scanEntries(found, n.ownUUIDs())
 	for i := range out {
-		if addr := firstReachable(out[i].Addrs, out[i].Port); addr != "" {
+		addr, rtt := firstReachable(out[i].Addrs, out[i].Port)
+		if addr != "" {
 			out[i].Reachable = true
+			out[i].RTTms = rtt
 		}
 	}
 	out = pinKnown(out, known)
+	out = mergeWithLastSeen(out)
+	return out
+}
+
+// mergeWithLastSeen keeps a row that vanished from THIS scan visible until
+// it has been absent for offlineTTL (a single lost multicast round must
+// not flicker the list), then drops it. Fresh rows update the stamp;
+// carried-over rows are marked unreachable. The previous result is read
+// from the scan cache under its own lock (scanNow runs outside that lock).
+func mergeWithLastSeen(current []scanEntry) []scanEntry {
+	now := time.Now()
+	scanResultCache.mu.Lock()
+	prev := append([]scanEntry(nil), scanResultCache.entries...)
+	scanResultCache.mu.Unlock()
+
+	byID := map[string]int{}
+	for i, e := range current {
+		byID[scanIdentity(e)] = i
+	}
+	lastSeen.mu.Lock()
+	for _, e := range current {
+		lastSeen.m[scanIdentity(e)] = now
+	}
+	for _, e := range prev {
+		id := scanIdentity(e)
+		if _, ok := byID[id]; ok {
+			continue // fresh this round
+		}
+		at, tracked := lastSeen.m[id]
+		if !tracked {
+			// First absence: start the clock, keep the row one more round.
+			lastSeen.m[id] = now
+			at = now
+		}
+		if now.Sub(at) > offlineTTL {
+			delete(lastSeen.m, id)
+			continue // gone for good
+		}
+		e.Reachable = false
+		e.RTTms = 0
+		current = append(current, e)
+	}
+	lastSeen.mu.Unlock()
+	return current
+}
+
+// scanIdentity is the stable row identity for the lastSeen cache: the
+// instance label plus port (the UUID lives in TXT, not in the row).
+func scanIdentity(e scanEntry) string {
+	return strings.ToLower(e.Instance) + "|" + fmt.Sprint(e.Port)
+}
+
+// apiProbe answers "does this IPP endpoint accept a tokenless request
+// right now?" for the client page's pairing-free install path (ADR-0015).
+// The TXT pair= mark can lag a just-closed open window; a live
+// Get-Printer-Attributes probe catches the 401 before a dead queue gets
+// installed. Loopback/admin-gated like every Extra endpoint; the probe
+// itself only reads printer-name.
+func (n *node) apiProbe(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodPost) {
+		return
+	}
+	var req struct {
+		Host string `json:"host"`
+		Port int    `json:"port"`
+		Path string `json:"path"`
+	}
+	if !readJSONBody(w, r, &req) {
+		return
+	}
+	if req.Host == "" || req.Port <= 0 || req.Port > 65535 {
+		writeErr(w, http.StatusBadRequest, "host and port required")
+		return
+	}
+	path := req.Path
+	if path == "" {
+		path = "/ipp/print"
+	}
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	pr := probeIPP(req.Host, req.Port, path, 2*time.Second)
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	_ = json.NewEncoder(w).Encode(map[string]any{"services": out})
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"alive": pr.Alive, "revoked": pr.Revoked, "status": pr.Status, "name": pr.Name,
+	})
+}
+
+// deepScanState is the single-flight background sweep (research/15 P3):
+// POST starts it, GET polls it. Only one sweep runs at a time; a second
+// POST while running returns the current state instead of stacking work.
+var deepScanState = struct {
+	mu      sync.Mutex
+	running bool
+	done    bool
+	entries []scanEntry
+	err     string
+	cidr    string
+}{}
+
+// apiDeepScan drives the manual cross-subnet sweep. POST {cidr?} starts a
+// background task (empty cidr = every selected interface's /24); GET
+// reports {running, done, entries, error}. The sweep is IPP-confirmed, so
+// mesh fake-handshakes never surface as printers.
+func (n *node) apiDeepScan(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodPost:
+		var req struct {
+			CIDR string `json:"cidr"`
+		}
+		if !readJSONBody(w, r, &req) {
+			return
+		}
+		deepScanState.mu.Lock()
+		if deepScanState.running {
+			st := deepScanSnapshotLocked()
+			deepScanState.mu.Unlock()
+			writeJSON(w, st)
+			return
+		}
+		deepScanState.running = true
+		deepScanState.done = false
+		deepScanState.entries = nil
+		deepScanState.err = ""
+		deepScanState.cidr = req.CIDR
+		deepScanState.mu.Unlock()
+		go n.runDeepScan(req.CIDR)
+		writeJSON(w, map[string]any{"running": true, "done": false})
+	case http.MethodGet:
+		deepScanState.mu.Lock()
+		st := deepScanSnapshotLocked()
+		deepScanState.mu.Unlock()
+		writeJSON(w, st)
+	default:
+		requireMethod(w, r, http.MethodGet, http.MethodPost)
+	}
+}
+
+func deepScanSnapshotLocked() map[string]any {
+	return map[string]any{
+		"running": deepScanState.running,
+		"done":    deepScanState.done,
+		"entries": deepScanState.entries,
+		"error":   deepScanState.err,
+		"cidr":    deepScanState.cidr,
+	}
+}
+
+func writeJSON(w http.ResponseWriter, v any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+// runDeepScan executes the sweep off the request path and publishes the
+// result into deepScanState.
+func (n *node) runDeepScan(cidr string) {
+	ifaces, _ := discovery.SelectBrowseInterfaces(nil)
+	opt := discovery.SweepOptions{
+		Ifaces: ifaces,
+		Probe: func(ctx context.Context, host string, port int) (string, bool) {
+			pr := probeIPPContext(ctx, host, port, "/ipp/print", 1500*time.Millisecond)
+			if !pr.Alive {
+				return "", false
+			}
+			return pr.Name, true
+		},
+	}
+	if cidr != "" {
+		opt.CIDRs = []string{cidr}
+	}
+	found, err := discovery.SweepSubnets(context.Background(), opt)
+	entries := make([]scanEntry, 0, len(found))
+	for _, f := range found {
+		entries = append(entries, scanEntry{
+			Instance:  f.Name,
+			Host:      f.Host,
+			Port:      f.Port,
+			Addrs:     []string{f.Host},
+			Name:      f.Name,
+			Path:      "/ipp/print",
+			Reachable: true,
+		})
+	}
+	n.log.Info("scan.deep", "cidr", cidr, "found", len(entries), "err", err)
+	deepScanState.mu.Lock()
+	deepScanState.running = false
+	deepScanState.done = true
+	deepScanState.entries = entries
+	if err != nil {
+		deepScanState.err = err.Error()
+	}
+	deepScanState.mu.Unlock()
 }
 
 // probeKnownNodes asks every previously added share side whether it still
@@ -298,7 +557,11 @@ func (n *node) probeKnownNodes(timeout time.Duration) (alive []scanEntry, probed
 	}
 	seen := map[key]addedPrinter{}
 	var order []key
-	for _, a := range n.added.list() {
+	list := n.added.list()
+	// Newest first: when the cap trims, the most recently added printers
+	// (the ones the user is actively working with) keep their probes.
+	sort.SliceStable(list, func(i, j int) bool { return list[i].AddedAt.After(list[j].AddedAt) })
+	for _, a := range list {
 		if a.ServerHost == "" || a.ServerPort <= 0 {
 			continue
 		}
@@ -309,8 +572,8 @@ func (n *node) probeKnownNodes(timeout time.Duration) (alive []scanEntry, probed
 		seen[k] = a
 		order = append(order, k)
 	}
-	if len(order) > 16 {
-		order = order[:16]
+	if len(order) > 32 {
+		order = order[:32]
 	}
 	probed = len(order)
 	if probed == 0 {
@@ -476,6 +739,14 @@ type ippProbe struct {
 // probeIPP performs Get-Printer-Attributes. timeout bounds the whole HTTP
 // exchange so a mesh fake-handshake cannot pin the scan.
 func probeIPP(host string, port int, path string, timeout time.Duration) ippProbe {
+	return probeIPPContext(context.Background(), host, port, path, timeout)
+}
+
+// probeIPPContext is probeIPP under an extra context budget: the added
+// list bounds ALL its probes together, not just each one. The context
+// rides on the transport (the IPP client has no ctx API and the wire
+// layer stays untouched).
+func probeIPPContext(ctx context.Context, host string, port int, path string, timeout time.Duration) ippProbe {
 	host = strings.Trim(host, "[]")
 	if host == "" || port <= 0 {
 		return ippProbe{}
@@ -495,6 +766,7 @@ func probeIPP(host string, port int, path string, timeout time.Duration) ippProb
 		return ippProbe{}
 	}
 	c.HTTP.Timeout = timeout
+	c.HTTP.Transport = &ctxTransport{base: c.HTTP.Transport, ctx: ctx}
 	msg, err := c.GetPrinterAttributes("printer-name")
 	if err != nil {
 		var he *client.HTTPStatusError
@@ -510,15 +782,29 @@ func probeIPP(host string, port int, path string, timeout time.Duration) ippProb
 	return ippProbe{Alive: true, Name: name, Status: http.StatusOK}
 }
 
+// ctxTransport injects a context into every request without touching the
+// IPP client's wire code.
+type ctxTransport struct {
+	base http.RoundTripper
+	ctx  context.Context
+}
+
+func (t *ctxTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	return t.base.RoundTrip(r.WithContext(t.ctx))
+}
+
 // scanEntries turns discovered services into add-printer rows: it drops
 // non-IPP wire noise and this machine's own instances, then merges the raw
 // and reference-client views of the same printer.
 //
-// The merge key is the instance label + port ONLY. The SRV target differs
-// per interface (the ${IFACE} naming in discovery), so including it in the
-// key split one physical printer into one row per interface — research/15
-// D-1. Same label+port on one link means the same printer: instance-name
-// conflicts are renamed away at announce time (RFC 6762 §9).
+// Merge key (ADR-0015): the TXT UUID when present — it is stable across
+// interfaces and renames, and two machines sharing same-named printers
+// carry different UUIDs, so they must NOT collapse into one row. Without
+// a UUID the fallback is label + host-base + port: the SRV target differs
+// per interface only by the "-<iface>" suffix (the ${IFACE} naming in
+// discovery), and stripping it keeps one physical printer as one row
+// (research/15 D-1) while same-named printers on different hosts stay
+// distinct.
 func scanEntries(found []discovery.Found, own map[string]bool) []scanEntry {
 	byKey := map[string]*scanEntry{}
 	ordered := []*scanEntry{}
@@ -552,7 +838,7 @@ func scanEntries(found []discovery.Found, own map[string]bool) []scanEntry {
 		if e.Name == "" {
 			e.Name = f.Instance
 		}
-		key := strings.ToLower(strings.TrimSuffix(label, ".")) + "|" + fmt.Sprint(f.Port)
+		key := scanMergeKey(f, label)
 		if prev, ok := byKey[key]; ok {
 			prev.Addrs = unionAddrs(prev.Addrs, e.Addrs)
 			continue
@@ -565,6 +851,32 @@ func scanEntries(found []discovery.Found, own map[string]bool) []scanEntry {
 		out = append(out, *e)
 	}
 	return out
+}
+
+// scanMergeKey is the dedup identity of a discovered service (see
+// scanEntries): UUID first, else label + host-base + port.
+func scanMergeKey(f discovery.Found, label string) string {
+	label = strings.ToLower(strings.TrimSuffix(label, "."))
+	if uuid := strings.ToLower(f.TXTMap["UUID"]); uuid != "" {
+		return "uuid:" + uuid + "|" + fmt.Sprint(f.Port)
+	}
+	return label + "|" + hostBase(f.Host) + "|" + fmt.Sprint(f.Port)
+}
+
+// hostBase strips the trailing dot and the per-interface "-<iface>" suffix
+// from an mDNS host name ("dyj-el-br-e57f74e0bde4.local." → "dyj-el"), so
+// the ${IFACE} views of one machine compare equal. A host that is already
+// an IP literal is returned as-is.
+func hostBase(host string) string {
+	h := strings.ToLower(strings.TrimSuffix(host, "."))
+	h = strings.TrimSuffix(h, ".local")
+	if net.ParseIP(h) != nil {
+		return h
+	}
+	if i := strings.LastIndex(h, "-"); i > 0 {
+		h = h[:i]
+	}
+	return h
 }
 
 // unionAddrs appends b's addresses to a without duplicates.
@@ -600,15 +912,46 @@ func (n *node) ownUUIDs() map[string]bool {
 	return own
 }
 
-func firstReachable(addrs []string, port int) string {
+// firstReachable dials every address in parallel and returns the fastest
+// responder plus its TCP handshake RTT in milliseconds. The serial loop
+// used to burn 800ms per dead address before reaching the live one, and
+// RTTms was never populated at all.
+func firstReachable(addrs []string, port int) (string, int) {
+	if len(addrs) == 0 {
+		return "", 0
+	}
+	type res struct {
+		addr string
+		rtt  time.Duration
+	}
+	ch := make(chan res, len(addrs))
 	for _, a := range addrs {
-		conn, err := net.DialTimeout("tcp", net.JoinHostPort(a, fmt.Sprint(port)), 800*time.Millisecond)
-		if err == nil {
-			conn.Close()
-			return a
+		go func(a string) {
+			start := time.Now()
+			conn, err := net.DialTimeout("tcp", net.JoinHostPort(a, fmt.Sprint(port)), 800*time.Millisecond)
+			if err != nil {
+				ch <- res{}
+				return
+			}
+			_ = conn.Close()
+			ch <- res{addr: a, rtt: time.Since(start)}
+		}(a)
+	}
+	best := res{}
+	for range addrs {
+		r := <-ch
+		if r.addr != "" && (best.addr == "" || r.rtt < best.rtt) {
+			best = r
 		}
 	}
-	return ""
+	if best.addr == "" {
+		return "", 0
+	}
+	ms := int(best.rtt / time.Millisecond)
+	if ms < 1 {
+		ms = 1
+	}
+	return best.addr, ms
 }
 
 // apiPairProxy relays the browser's pairing call to the SHARE machine's
@@ -803,12 +1146,101 @@ func (n *node) apiAddedPrinters(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	list := n.added.list()
-	out := make([]addedPrinterStatus, 0, len(list))
-	for _, a := range list {
-		out = append(out, addedPrinterStatus{addedPrinter: a, Status: addedStatus(a)})
-	}
+	out := addedStatuses(list)
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(map[string]any{"printers": out})
+}
+
+// addedStatuses classifies the whole registry in one pass: ONE batched
+// system-queue query (N PowerShell launches made the 15s UI poll race
+// itself) plus parallel IPP probes behind a 10s cache, all under a 2.5s
+// budget. A probe that misses the budget stays inconclusive → "ok", the
+// same rule as a silent probe; the next poll refreshes it.
+func addedStatuses(list []addedPrinter) []addedPrinterStatus {
+	names := make([]string, 0, len(list))
+	for _, a := range list {
+		names = append(names, a.QueueName)
+	}
+	queueSet, qErr := sysqueue.Names(names)
+	type probeKey struct {
+		host string
+		port int
+		path string
+	}
+	probeOf := func(a addedPrinter) probeKey {
+		return probeKey{strings.ToLower(strings.Trim(a.ServerHost, "[]")), a.ServerPort, a.URIPath}
+	}
+	// Dedup endpoints: two queues pointing at one share probe once.
+	uniq := map[probeKey]bool{}
+	for _, a := range list {
+		if a.ServerHost != "" && a.ServerPort > 0 {
+			uniq[probeOf(a)] = true
+		}
+	}
+	probes := map[probeKey]ippProbe{}
+	var pmu sync.Mutex
+	ctx, cancel := context.WithTimeout(context.Background(), 2500*time.Millisecond)
+	defer cancel()
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 4)
+	for k := range uniq {
+		wg.Add(1)
+		go func(k probeKey) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			pr := cachedProbeIPP(ctx, k.host, k.port, k.path)
+			pmu.Lock()
+			probes[k] = pr
+			pmu.Unlock()
+		}(k)
+	}
+	wg.Wait()
+	out := make([]addedPrinterStatus, 0, len(list))
+	for _, a := range list {
+		queueOK := queueSet[strings.ToLower(a.QueueName)]
+		queueKnown := qErr == nil
+		probed := a.ServerHost != "" && a.ServerPort > 0
+		var pr ippProbe
+		if probed {
+			pr = probes[probeOf(a)]
+		}
+		out = append(out, addedPrinterStatus{addedPrinter: a, Status: classifyAdded(queueOK, queueKnown, probed, pr)})
+	}
+	return out
+}
+
+// probeCacheEntry is one cached IPP probe result.
+type probeCacheEntry struct {
+	at time.Time
+	pr ippProbe
+}
+
+var (
+	probeCacheMu sync.Mutex
+	probeCache   = map[string]probeCacheEntry{}
+)
+
+// cachedProbeIPP wraps probeIPP with a 10s result cache keyed by endpoint:
+// the added list (15s poll) and the scan (known-node probes) hit the same
+// share sides, and a dead endpoint must not cost a fresh 2s timeout on
+// every call. The context budget bounds the underlying HTTP request.
+func cachedProbeIPP(ctx context.Context, host string, port int, path string) ippProbe {
+	key := host + "|" + strconv.Itoa(port) + "|" + path
+	probeCacheMu.Lock()
+	if e, ok := probeCache[key]; ok && time.Since(e.at) < 10*time.Second {
+		probeCacheMu.Unlock()
+		return e.pr
+	}
+	probeCacheMu.Unlock()
+	pr := probeIPPContext(ctx, host, port, path, 2*time.Second)
+	probeCacheMu.Lock()
+	if len(probeCache) > 512 {
+		probeCache = map[string]probeCacheEntry{}
+	}
+	probeCache[key] = probeCacheEntry{at: time.Now(), pr: pr}
+	probeCacheMu.Unlock()
+	return pr
 }
 
 // addedPrinterStatus is one registry entry plus its live receiver state
@@ -956,7 +1388,7 @@ func (s *addedStore) upsert(p addedPrinter) {
 	defer s.mu.Unlock()
 	replaced := false
 	for i := range s.entries {
-		if s.entries[i].QueueName == p.QueueName || (p.ServerHost != "" && s.entries[i].ServerHost == p.ServerHost && s.entries[i].URIPath == p.URIPath) {
+		if s.entries[i].QueueName == p.QueueName || (p.ServerHost != "" && s.entries[i].ServerHost == p.ServerHost && s.entries[i].ServerPort == p.ServerPort && s.entries[i].URIPath == p.URIPath) {
 			s.entries[i] = p
 			replaced = true
 			break

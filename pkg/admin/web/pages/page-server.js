@@ -5,7 +5,7 @@
 import {
   getConfig, saveConfig, getLocalPrinters, getPairing, rotatePairing,
   getDevices, revokeDevice, getJobs, cancelJob, pausePrinter, resumePrinter,
-  getOpen, openStart, openStop,
+  getOpen, openStart, openStop, getStatus,
   errMessage, esc,
 } from '../api.js';
 import { t } from '../i18n/index.js';
@@ -42,10 +42,19 @@ class DyjPageServer extends HTMLElement {
     border: 1px solid var(--dyj-primary); border-radius: 99px; padding: 1px 8px; }
   dyj-page-server .linklike { margin-top: 10px; font-size: var(--dyj-fs-s); }
   dyj-page-server .linklike a { color: var(--dyj-primary); cursor: pointer; }
-  dyj-page-server .pin { font-size: 44px; font-weight: 700; letter-spacing: .35em;
-    padding: 4px 0 2px; font-variant-numeric: tabular-nums; }
+  dyj-page-server .pin { font-size: 46px; font-weight: 750; letter-spacing: .32em;
+    padding: 8px 18px 6px 24px; font-variant-numeric: tabular-nums;
+    color: var(--dyj-primary); background: var(--dyj-primary-weak);
+    border: 1px solid var(--dyj-border); border-radius: var(--dyj-radius-l, 16px);
+    cursor: pointer; user-select: all; transition: box-shadow .15s; }
+  dyj-page-server .pin:hover { box-shadow: var(--dyj-ring); }
   dyj-page-server .pinrow { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
   dyj-page-server .pinhint { color: var(--dyj-text-dim); font-size: var(--dyj-fs-s); }
+  dyj-page-server .tablet { margin-top: 14px; padding: 10px 14px;
+    border: 1px dashed var(--dyj-border); border-radius: var(--dyj-radius);
+    color: var(--dyj-text-dim); font-size: var(--dyj-fs-s); line-height: 1.7; }
+  dyj-page-server .tablet b { color: var(--dyj-text); font-weight: 600; }
+  dyj-page-server .badge.virtual { font-size: var(--dyj-fs-s); border-radius: 99px; padding: 1px 8px; }
   dyj-page-server .openrow { display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
     margin-top: 6px; }
   dyj-page-server .openrow .state { color: var(--dyj-text-dim); flex: 1; min-width: 200px; }
@@ -141,6 +150,7 @@ class DyjPageServer extends HTMLElement {
             <div id="openBtns"></div>
           </div>
         </section>
+        <div class="tablet" id="tabletHint" hidden></div>
         <section>
           <h2>${t('server_printers_title')}</h2>
           <div id="printersBox"></div>
@@ -166,6 +176,8 @@ class DyjPageServer extends HTMLElement {
       await rotatePairing().catch(() => {});
       this.#refreshPin();
     });
+    this.querySelector('#pin').addEventListener('click', () => this.#copyPin());
+    this.#loadTabletHint();
     const pauseBtn = this.querySelector('#pauseBtn');
     pauseBtn.textContent = this.#accepting ? t('server_pause') : t('server_resume');
     this.querySelector('#pauseBtn').addEventListener('click', () => this.#togglePause());
@@ -173,9 +185,13 @@ class DyjPageServer extends HTMLElement {
     this.#renderPrinters();
     this.#refreshPin();
     this.#refreshOpen();
+    let lpTick = 0;
     this.#pollTimer = setInterval(() => {
       this.#refreshPin();
       this.#refreshOpen();
+      this.#loadTabletHint();
+      // 每 30s 重拉本机打印机：新插/新装的打印机不用切页就出现。
+      if (++lpTick % 6 === 0) this.#refreshLocal();
     }, 5000);
     this.#loadDevices();
     this.#refreshJobs();
@@ -212,11 +228,18 @@ class DyjPageServer extends HTMLElement {
       row.className = 'row' + (p.probe_err ? ' bad' : '');
       const cb = document.createElement('input');
       cb.type = 'checkbox';
-      cb.checked = !p.probe_err; // 默认全选打得开的打印机（虚拟默认隐藏）
+      cb.checked = !p.probe_err && !p.virtual; // 虚拟打印机不出纸：必须显式勾选，绝不默认选中
       cb.dataset.name = p.name;
       row.append(cb);
       row.append(rowMeta(p.name, [p.driver,
         p.probe_err ? t('server_probe_err') + '：' + p.probe_err : ''].filter(Boolean).join(' · ')));
+      if (p.virtual) {
+        const v = document.createElement('span');
+        v.className = 'badge virtual';
+        v.textContent = t('server_virtual_badge');
+        v.title = t('server_virtual_hint');
+        row.append(v);
+      }
       if (p.default) {
         const b = document.createElement('span');
         b.className = 'badge';
@@ -251,6 +274,16 @@ class DyjPageServer extends HTMLElement {
     if (!checked.length) {
       showToast(t('server_pick_hint'), 'error');
       return;
+    }
+    // 防呆：选中的全是虚拟打印机（不出纸）时，先确认再共享。
+    if (checked.every((p) => p.virtual)) {
+      const ok = await confirmDialog({
+        title: t('server_virtual_confirm_title'),
+        body: t('server_virtual_confirm_body'),
+        confirmText: t('server_virtual_confirm_ok'),
+        danger: true,
+      });
+      if (!ok) return;
     }
     const prev = this.#cfg || {};
     const next = {
@@ -290,6 +323,13 @@ class DyjPageServer extends HTMLElement {
       const row = document.createElement('div');
       row.className = 'row';
       row.append(rowMeta(p.name, p.driver || ''));
+      if (p.virtual) {
+        const v = document.createElement('span');
+        v.className = 'badge virtual';
+        v.textContent = t('server_virtual_badge');
+        v.title = t('server_virtual_hint');
+        row.append(v);
+      }
       if (p.default) {
         const b = document.createElement('span');
         b.className = 'badge';
@@ -325,6 +365,18 @@ class DyjPageServer extends HTMLElement {
     const next = want
       ? [...cur.filter((x) => x.name !== p.name), { name: p.name, queue: p.name }]
       : cur.filter((x) => x.name !== p.name);
+    // 防呆：关掉最后一台 = 整个共享停止，必须先确认（此前会静默退回挑选态）。
+    if (!want && cur.length === 1) {
+      const ok = await confirmDialog({
+        title: t('server_unshare_last_title'),
+        body: t('server_unshare_last_body'),
+        confirmText: t('server_unshare_last_ok'),
+        danger: true,
+      });
+      if (!ok) { cb.checked = true; return; }
+    }
+    // 防呆：虚拟打印机不出纸，开启时明确告知（不阻断，用户可能就是要共享 PDF）。
+    if (want && p.virtual) showToast(t('server_virtual_toast'), 'error');
     const body = { ...prev, role: next.length ? (prev.role === 'use' ? 'both' : 'share') : prev.role, printers: next };
     cb.disabled = true;
     try {
@@ -355,10 +407,42 @@ class DyjPageServer extends HTMLElement {
       const el = this.querySelector('#pin');
       if (!el) return;
       el.textContent = pin || '····';
+      el.title = t('server_pin_copy_hint');
       this.querySelector('#pinHint').textContent = t('server_pin_hint', { n: remain_sec ?? 0 });
     } catch {
       if (sec) sec.hidden = true; // 配对不可用（旧服务）→ 不显示
     }
+  }
+
+  // 点配对码即复制（防呆：手抄 4 位数字容易错）。
+  async #copyPin() {
+    const pin = this.querySelector('#pin')?.textContent || '';
+    if (!/^\d{4}$/.test(pin)) return;
+    try {
+      await navigator.clipboard.writeText(pin);
+      showToast(t('btn_copied'));
+    } catch {
+      showToast(t('copy_failed'), 'error');
+    }
+  }
+
+  // 平板/手机连接提示（research/17）：系统"按 IP 添加"没有地址栏以外的
+  // 选项，把本机地址和开放打印的当前状态直接写出来，少一轮来回试错。
+  async #loadTabletHint() {
+    const box = this.querySelector('#tabletHint');
+    if (!box) return;
+    try {
+      const st = await getStatus();
+      const uri = (st.uris || []).find((u) => !u.includes('127.0.0.1'));
+      const m = uri && uri.match(/ipp:\/\/([^:/]+)/);
+      if (!m) { box.hidden = true; return; }
+      const open = st.open_printing
+        ? (st.open_print_always ? t('server_tablet_open_always') : t('server_tablet_open_on'))
+        : t('server_tablet_open_off');
+      box.innerHTML = `<b>${t('server_tablet_title')}</b><br>
+        ${t('server_tablet_body', { ip: esc(m[1]) })}<br>${open}`;
+      box.hidden = false;
+    } catch { box.hidden = true; }
   }
 
   // ---- 免认证开放打印（ADR-0014）：三种状态渲染 + 两个入口 ----
@@ -373,6 +457,25 @@ class DyjPageServer extends HTMLElement {
     } catch {
       sec.hidden = true; // 端点不可用（旧服务/无权限）→ 整节不出现
     }
+  }
+
+  // 静默重拉本机打印机列表；失败保留旧列表（枚举抖动不该清空向导）。
+  async #refreshLocal() {
+    try {
+      const { printers } = await getLocalPrinters();
+      this.#rows = printers || [];
+      if (this.#mode === 'home') this.#renderPrinters();
+    } catch { /* 保留旧列表 */ }
+  }
+
+  // 开放开关走 /api/open，不经过 #cfg；操作后重拉配置快照，避免后续
+  // 逐台开关/保存把陈旧的 open_print 覆盖回去（服务端对缺键也保留现值，
+  // 双保险）。
+  async #syncCfg() {
+    try {
+      const { config } = await getConfig();
+      this.#cfg = config || {};
+    } catch { /* 快照刷新失败不阻塞开关操作 */ }
   }
 
   #renderOpen({ enabled, always, remain_sec }) {
@@ -394,12 +497,19 @@ class DyjPageServer extends HTMLElement {
     b10.setAttribute('variant', 'primary');
     b10.textContent = t('server_open_start');
     b10.addEventListener('click', async () => {
+      const ok = await confirmDialog({
+        title: t('server_open_start_confirm_title'),
+        body: t('server_open_start_confirm_body'),
+        confirmText: t('server_open_start'),
+      });
+      if (!ok) return;
       try {
         await openStart({ duration_sec: 600 });
       } catch (e) {
         showToast(errMessage(e), 'error');
       }
       this.#refreshOpen();
+      this.#syncCfg();
     });
     const bAlways = document.createElement('dyj-button');
     bAlways.setAttribute('variant', 'secondary');
@@ -413,6 +523,13 @@ class DyjPageServer extends HTMLElement {
     b.setAttribute('variant', 'secondary');
     b.textContent = t('server_open_stop');
     b.addEventListener('click', async () => {
+      const ok = await confirmDialog({
+        title: t('server_open_stop_confirm_title'),
+        body: t('server_open_stop_confirm_body'),
+        confirmText: t('server_open_stop'),
+        danger: true,
+      });
+      if (!ok) return;
       try {
         await openStop();
         showToast(t('server_open_closed'));
@@ -420,6 +537,7 @@ class DyjPageServer extends HTMLElement {
         showToast(errMessage(e), 'error');
       }
       this.#refreshOpen();
+      this.#syncCfg();
     });
     return b;
   }
@@ -439,6 +557,7 @@ class DyjPageServer extends HTMLElement {
       showToast(errMessage(e), 'error');
     }
     this.#refreshOpen();
+    this.#syncCfg();
   }
 
   async #loadDevices() {

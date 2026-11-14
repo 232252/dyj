@@ -13,16 +13,20 @@ class DyjButton extends HTMLElement {
   :host([hidden]) { display: none; }
   button {
     display: inline-flex; align-items: center; gap: 6px;
-    font: inherit; font-size: var(--dyj-fs-m); line-height: 1.2;
-    padding: 9px 14px; border-radius: var(--dyj-radius);
+    font: inherit; font-size: var(--dyj-fs-m); font-weight: 550; line-height: 1.2;
+    padding: 9px 16px; border-radius: var(--dyj-radius);
     border: 1px solid var(--dyj-border);
     background: var(--dyj-card); color: var(--dyj-text); cursor: pointer;
-    transition: background .15s, border-color .15s, opacity .15s;
+    box-shadow: var(--dyj-shadow);
+    transition: background .15s, border-color .15s, opacity .15s, box-shadow .15s, transform .1s;
   }
-  button:hover:not(:disabled) { border-color: var(--dyj-primary); }
+  button:hover:not(:disabled) { border-color: var(--dyj-primary); box-shadow: var(--dyj-shadow-md); }
+  button:active:not(:disabled) { transform: translateY(1px); box-shadow: var(--dyj-shadow); }
   button:focus-visible { outline: 2px solid var(--dyj-primary); outline-offset: 2px; }
-  button:disabled { opacity: .55; cursor: not-allowed; }
-  :host([variant=primary]) button { background: var(--dyj-primary); border-color: var(--dyj-primary); color: var(--dyj-primary-contrast); }
+  button:disabled { opacity: .55; cursor: not-allowed; box-shadow: none; }
+  :host([variant=primary]) button { background: var(--dyj-primary-gradient, var(--dyj-primary));
+    border-color: transparent; color: var(--dyj-primary-contrast); }
+  :host([variant=primary]) button:hover:not(:disabled) { filter: brightness(1.07); }
   :host([variant=danger]) button { background: var(--dyj-danger); border-color: var(--dyj-danger); color: #fff; }
   .spin { width: 13px; height: 13px; border: 2px solid currentColor;
     border-right-color: transparent; border-radius: 50%; flex: none;

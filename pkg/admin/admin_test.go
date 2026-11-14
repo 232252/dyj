@@ -252,6 +252,47 @@ func TestDiagnosticsEndpoint(t *testing.T) {
 	}
 }
 
+// syncRecorder is a concurrency-safe http.ResponseWriter: the SSE handler
+// writes from its own goroutine while the test polls the body, and
+// httptest.ResponseRecorder's plain bytes.Buffer body races under -race.
+type syncRecorder struct {
+	mu     sync.Mutex
+	header http.Header
+	body   strings.Builder
+	code   int
+}
+
+func (r *syncRecorder) Header() http.Header {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.header == nil {
+		r.header = http.Header{}
+	}
+	return r.header
+}
+
+func (r *syncRecorder) Write(p []byte) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.body.Write(p)
+}
+
+func (r *syncRecorder) WriteHeader(code int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.code = code
+}
+
+// Flush satisfies http.Flusher (the SSE handler requires it); writes are
+// already visible to String() immediately, so this is a no-op.
+func (r *syncRecorder) Flush() {}
+
+func (r *syncRecorder) String() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.body.String()
+}
+
 func TestLogRingAndSSESnapshot(t *testing.T) {
 	h, _, ring := newTestHandler(t, "")
 	// Snapshot phase of the SSE stream is written synchronously before
@@ -259,23 +300,24 @@ func TestLogRingAndSSESnapshot(t *testing.T) {
 	// cancel shortly after.
 	ctx, cancel := context.WithCancel(context.Background())
 	req := loopbackRequest(http.MethodGet, "/admin/api/logs", nil).WithContext(ctx)
-	w := httptest.NewRecorder()
+	w := &syncRecorder{}
 	done := make(chan struct{})
 	go func() {
 		h.ServeHTTP(w, req)
 		close(done)
 	}()
 	deadline := time.Now().Add(2 * time.Second)
-	for w.Body.Len() == 0 || !strings.Contains(w.Body.String(), "line two") {
+	for !strings.Contains(w.String(), "line two") {
 		if time.Now().After(deadline) {
-			t.Fatalf("SSE snapshot never arrived: %q", w.Body.String())
+			t.Fatalf("SSE snapshot never arrived: %q", w.String())
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
 	ring.Write([]byte("dyj: line three\n"))
-	if !strings.Contains(w.Body.String(), "line three") {
-		// live line may take a moment to flush
-		time.Sleep(50 * time.Millisecond)
+	// Wait for the live line to flush (bounded), not a single fixed sleep.
+	liveDeadline := time.Now().Add(time.Second)
+	for !strings.Contains(w.String(), "line three") && time.Now().Before(liveDeadline) {
+		time.Sleep(5 * time.Millisecond)
 	}
 	cancel()
 	select {
@@ -283,9 +325,9 @@ func TestLogRingAndSSESnapshot(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("handler did not return after context cancel")
 	}
-	body := w.Body.String()
-	if !strings.Contains(body, "data: dyj: line one") || !strings.Contains(body, "line three") {
-		t.Errorf("SSE body missing lines: %q", body)
+	got := w.String()
+	if !strings.Contains(got, "data: dyj: line one") || !strings.Contains(got, "line three") {
+		t.Errorf("SSE body missing lines: %q", got)
 	}
 }
 

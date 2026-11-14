@@ -97,6 +97,33 @@ func Exists(name string) (bool, error) {
 	return strings.TrimSpace(out) == "yes", nil
 }
 
+// Names reports which of the given queue names exist, in ONE Get-Printer
+// call. The added-printer list used to launch one PowerShell per queue
+// (N × process-start dominated the 15s UI poll). Returns a lowercase name
+// set; on any failure the caller falls back to per-queue Exists.
+func Names(names []string) (map[string]bool, error) {
+	set := make(map[string]bool, len(names))
+	if len(names) == 0 {
+		return set, nil
+	}
+	out, err := runPS("Get-Printer | ForEach-Object { $_.Name }")
+	if err != nil {
+		return nil, fmt.Errorf("Get-Printer: %s", firstLines(out, 3))
+	}
+	live := make(map[string]bool)
+	for _, line := range strings.Split(out, "\n") {
+		if n := strings.TrimSpace(line); n != "" {
+			live[strings.ToLower(n)] = true
+		}
+	}
+	for _, n := range names {
+		if live[strings.ToLower(n)] {
+			set[strings.ToLower(n)] = true
+		}
+	}
+	return set, nil
+}
+
 // Remove deletes the queue.
 func Remove(name string) error {
 	script := fmt.Sprintf(
